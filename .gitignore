@@ -1,0 +1,21 @@
+# Entorno virtual
+venv/
+.venv/
+env/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Audio temporales
+*.mp3
+*.wav
+
+# Carpeta static antigua (los archivos viven en static/ ahora)
+templates/static/
+
+# Sistema
+.DS_Store
+Thumbs.db
