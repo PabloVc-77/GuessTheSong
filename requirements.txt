@@ -3,7 +3,7 @@ blinker==1.9.0
 click==8.3.1
 colorama==0.4.6
 dnspython==2.8.0
-eventlet==0.40.4
+eventlet==0.41.0
 Flask==3.1.2
 Flask-SocketIO==5.5.1
 greenlet==3.2.4
