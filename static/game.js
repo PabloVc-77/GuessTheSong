@@ -1,6 +1,5 @@
 let socket = io();
 let jugador = "";
-let esHost = false;
 
 // Dark/Light toggle
 document.getElementById('mode-toggle').addEventListener('click', () => {
@@ -21,13 +20,10 @@ function lanzarConfeti() {
   }
 }
 
-// Modal logic
-function mostrarFinal() {
-  // Show modal
-  const modal = document.getElementById("modal");
-  const scores = document.getElementById("puntuaciones").innerText;
-  document.getElementById("final-scores").innerText = scores;
-  modal.style.display = "flex";
+// Modal
+function mostrarModal(msg) {
+  document.getElementById("final-scores").innerText = msg || "";
+  document.getElementById("modal").style.display = "flex";
   lanzarConfeti();
 }
 
@@ -35,13 +31,14 @@ document.getElementById("close-modal").addEventListener("click", () => {
   document.getElementById("modal").style.display = "none";
 });
 
-// Socket.io functions
+// Registro
 function registrarse() {
   jugador = document.getElementById("nombre").value.trim().toLowerCase();
   if (!jugador) return alert("Introduce un nombre válido");
   socket.emit("registrar", jugador);
 }
 
+// Respuesta
 function enviarRespuesta() {
   const texto = document.getElementById("respuesta").value.trim();
   if (!texto) return alert("Escribe una respuesta");
@@ -49,35 +46,20 @@ function enviarRespuesta() {
   document.getElementById("resultado").innerText = "Respuesta enviada.";
 }
 
-function nuevaRonda() { socket.emit("nueva_ronda"); }
+// +30s
 function solicitarTiempo() {
   socket.emit("pedir_30s", jugador);
   document.getElementById("resultado").innerText = "🕒 Has solicitado +30 segundos.";
 }
 
+// Eventos del servidor
 socket.on("registrado", msg => {
   document.getElementById("registro").style.display = "none";
   document.getElementById("juego").style.display = "block";
   document.getElementById("bienvenida").innerText = msg;
-  if (jugador === "host") {
-    esHost = true;
-    document.getElementById("panel_host").style.display = "block";
-    document.getElementById("panel_jugador").style.display = "none";
-    document.getElementById("qr-contenedor").style.display = "flex";
-    if (esHost) {
-        document.getElementById("url").innerText = document.body.dataset.url;
-        document.getElementById("qr").src = "data:image/png;base64," + document.body.dataset.qr;
-    }
-
-  } 
 });
 
-socket.on("round", msg => {document.getElementById("bienvenida").innerText = msg;});
-
-socket.on("estado", msg => document.getElementById("estado").innerText = msg);
-socket.on("resultado", msg => document.getElementById("resultado").innerText = msg);
-socket.on("temporizador", segundos => document.getElementById("temporizador").innerText = segundos);
-socket.on("puntuaciones", texto => document.getElementById("puntuaciones").innerText = texto);
-socket.on("mostrar_popup_ronda", msg => {
-  mostrarFinal();
-});
+socket.on("estado",      msg     => document.getElementById("estado").innerText = msg);
+socket.on("resultado",   msg     => document.getElementById("resultado").innerText = msg);
+socket.on("temporizador", seg    => document.getElementById("temporizador").innerText = seg);
+socket.on("mostrar_popup_ronda", msg => mostrarModal(msg));

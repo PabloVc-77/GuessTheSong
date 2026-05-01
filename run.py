@@ -1,6 +1,3 @@
-import eventlet
-eventlet.monkey_patch()
-
 import tempfile
 import pygame
 
@@ -18,13 +15,9 @@ from flask_socketio import SocketIO, emit
 from yt_dlp import YoutubeDL
 import subprocess
 
-import qrcode
-import base64
-from io import BytesIO
-
 
 app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 jugadores_conectados = {}        # sid → nombre
 puntuaciones = {}                # nombre → puntos
@@ -36,6 +29,10 @@ partida_terminada = False
 sid_host = None
 temporizador_activo = False
 tiempo_restante = 0
+panel_ranking_texto = ""
+descarga_activa = False
+descarga_progreso = 0.0   # 0.0 – 1.0
+descarga_fase = ""        # "descargando" | "procesando" | ""
 
 # ---------- PARAMETROS ----------
 LISTA = 'Olaf.txt'    # Lista de canciones
@@ -74,9 +71,23 @@ def elegir_cancion():
     return titulo, artista
 
 def descargar_y_reproducir(titulo, artista):
+    global descarga_activa, descarga_progreso, descarga_fase
     busqueda = f"{titulo} {artista} audio"
-
     temp_dir = tempfile.mkdtemp()
+
+    descarga_activa = True
+    descarga_progreso = 0.0
+    descarga_fase = "descargando"
+
+    def _progress_hook(d):
+        global descarga_progreso
+        if d['status'] == 'downloading':
+            total = d.get('total_bytes') or d.get('total_bytes_estimate', 0)
+            if total > 0:
+                descarga_progreso = d['downloaded_bytes'] / total
+        elif d['status'] == 'finished':
+            descarga_progreso = 1.0
+
     try:
         ydl_opts = {
             'format': 'bestaudio/best',
@@ -87,12 +98,15 @@ def descargar_y_reproducir(titulo, artista):
                 'preferredcodec': 'mp3',
                 'preferredquality': '128',
             }],
+            'progress_hooks': [_progress_hook],
         }
         with YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(f"ytsearch1:{busqueda}", download=True)
             entry = info['entries'][0]
             archivo = os.path.join(temp_dir, entry['id'] + '.mp3')
             duracion = entry.get('duration', 180)
+
+        descarga_fase = "procesando"
 
         inicio = random.randint(0, max(0, duracion - T_FRAGMENT - 5))
         wav_temp = os.path.join(temp_dir, "frag.wav")
@@ -101,6 +115,9 @@ def descargar_y_reproducir(titulo, artista):
             "ffmpeg", "-y", "-ss", str(inicio), "-i", archivo,
             "-t", str(T_FRAGMENT), "-acodec", "pcm_s16le", "-ar", "44100", wav_temp
         ], capture_output=True)
+
+        descarga_activa = False
+        descarga_fase = ""
 
         if result.returncode != 0:
             print("❌ ffmpeg error:", result.stderr.decode(errors="ignore"))
@@ -117,6 +134,8 @@ def descargar_y_reproducir(titulo, artista):
 
     except Exception as e:
         print("❌ Error al reproducir:", e)
+        descarga_activa = False
+        descarga_fase = ""
         return False
 
 def anadir_30s_extra():
@@ -166,6 +185,12 @@ def evaluar_respuestas():
 
     if sid_host:
         socketio.emit("puntuaciones", "\n".join(resumen), to=sid_host)
+
+    global panel_ranking_texto
+    sorted_pts = sorted([(n, puntuaciones[n]) for n in puntuaciones if n != "host"],
+                        key=lambda x: x[1], reverse=True)
+    panel_ranking_texto = "📊 Clasificación:\n" + "\n".join(
+        f"{i+1}. {n}: {p} pts" for i, (n, p) in enumerate(sorted_pts))
 
 # ---------- Temporizador ----------
 
@@ -264,20 +289,49 @@ def reset_all():
     print("🔄 Juego reseteado completamente.")
 
 
+# ---------- Acciones del host ----------
+
+def action_nueva_ronda():
+    global cancion_actual, ronda_actual
+    cancion_actual += 1
+    if cancion_actual > ROUNDS:
+        cancion_actual = 0
+        ronda_actual += 1
+        socketio.emit("estado", f"🎯 ¡Ronda {ronda_actual - 1} terminada! Se reinician los puntos.")
+        print(f"🎯 Ronda {ronda_actual - 1} terminada, reiniciando puntuaciones...")
+        reset()
+        return
+    print(f"▶️ Canción {cancion_actual}/{ROUNDS} de la ronda {ronda_actual}")
+    socketio.emit("estado", f"🎵 Ronda {ronda_actual}, canción {cancion_actual}/{ROUNDS}")
+    iniciar_ronda()
+
+def action_terminar_partida():
+    global partida_terminada, cancion_actual, ronda_actual, panel_ranking_texto
+    partida_terminada = True
+    ranking = sorted(puntuaciones.items(), key=lambda x: x[1], reverse=True)
+    texto = "\n🏆 Ranking final:\n" + "\n".join(f"{n}: {p} pts" for n, p in ranking if n != "host")
+    panel_ranking_texto = texto
+    print(texto)
+    for sid in list(jugadores_conectados.keys()):
+        socketio.emit("estado", texto, to=sid)
+    cancion_actual = 0
+    ronda_actual = 1
+    reset()
+    for ruta in fragmentos_temporales:
+        try:
+            if os.path.exists(ruta):
+                os.remove(ruta)
+                print(f"🗑️ Eliminado: {ruta}")
+        except Exception as e:
+            print(f"❌ Error al borrar {ruta}:", e)
+    fragmentos_temporales.clear()
+
 # ---------- Flask / SocketIO ----------
 from flask import render_template
 
 @app.route("/")
 def index():
-    url = f"http://{obtener_ip_local()}:7777"
-
-    # Generar QR
-    qr = qrcode.make(url)
-    buffer = BytesIO()
-    qr.save(buffer, format="PNG")
-    qr_b64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
-
-    return render_template("host.html", URL=url, QR=qr_b64)
+    return render_template("host.html")
 
 @socketio.on("connect")
 def conectar():
@@ -291,24 +345,11 @@ def desconectar():
 
 @socketio.on("registrar")
 def registrar(nombre):
-    global sid_host
     jugadores_conectados[request.sid] = nombre
     puntuaciones.setdefault(nombre, 0)
-
-    if nombre == "host":
-        sid_host = request.sid
-
     print(f"🟢 Registrado: {nombre}")
-    if(nombre != "host"):
-      emit("registrado", f"Bienvenido, {nombre}!")
-    else:
-        emit("registrado", f"Canción {cancion_actual}/{ROUNDS} de la ronda {ronda_actual}")
+    emit("registrado", f"Bienvenido, {nombre}!")
     emit("estado", "Esperando inicio de la ronda...", to=request.sid)
-
-    # Enviar ranking al host
-    if sid_host:
-        resumen = [f"{n}: {puntuaciones.get(n, 0)} pts" for n in puntuaciones if n != "host"]
-        socketio.emit("puntuaciones", "\n".join(resumen), to=sid_host)
 
 
 @socketio.on("respuesta")
@@ -338,61 +379,15 @@ def recibir_respuesta(data):
 
 @socketio.on("nueva_ronda")
 def desde_host():
-    global cancion_actual, ronda_actual
-
     if jugadores_conectados.get(request.sid) != "host":
         return
-
-    # Increment song counter
-    cancion_actual += 1
-
-    if cancion_actual > ROUNDS:
-        # Round finished
-        cancion_actual = 0
-        ronda_actual += 1
-        socketio.emit("estado", f"🎯 ¡Ronda {ronda_actual - 1} terminada! Se reinician los puntos.")
-        print(f"🎯 Ronda {ronda_actual - 1} terminada, reiniciando puntuaciones...")
-
-        reset()
-            
-        return
-
-    print(f"▶️ Canción {cancion_actual}/{ROUNDS} de la ronda {ronda_actual}")
-    socketio.emit("estado", f"🎵 Ronda {ronda_actual}, canción {cancion_actual}/{ROUNDS}")
-    socketio.emit("round", f"Canción {cancion_actual}/{ROUNDS} de la ronda {ronda_actual}", to=sid_host)
-    iniciar_ronda()
-
+    socketio.start_background_task(action_nueva_ronda)
 
 @socketio.on("terminar_partida")
 def terminar_partida():
-    global partida_terminada, cancion_actual, ronda_actual
     if jugadores_conectados.get(request.sid) != "host":
         return
-    partida_terminada = True
-
-    ranking = sorted(puntuaciones.items(), key=lambda x: x[1], reverse=True)
-    texto = "\n🏆 Ranking final:\n" + "\n".join(f"{n}: {p} pts" for n, p in ranking if n != "host")
-    print(texto)
-
-    # Enviar a todos
-    for sid in jugadores_conectados:
-        socketio.emit("estado", texto, to=sid)
-
-    cancion_actual = 0
-    ronda_actual = 1
-
-    reset()
-
-    # Eliminar fragmentos
-    for ruta in fragmentos_temporales:
-        try:
-            if os.path.exists(ruta):
-                os.remove(ruta)
-                print(f"🗑️ Eliminado: {ruta}")
-        except Exception as e:
-            print(f"❌ Error al borrar {ruta}:", e)
-
-    fragmentos_temporales.clear()
+    socketio.start_background_task(action_terminar_partida)
 
 @socketio.on("pedir_30s")
 def pedir_30s(nombre):
@@ -412,4 +407,10 @@ def pedir_30s(nombre):
 # ---------- Ejecutar ----------
 
 if __name__ == "__main__":
-    socketio.run(app, host="0.0.0.0", port=7777, debug=False, use_reloader=False)
+    threading.Thread(
+        target=lambda: socketio.run(app, host="0.0.0.0", port=7777, debug=False, use_reloader=False),
+        daemon=True
+    ).start()
+    time.sleep(0.5)
+    import gui
+    gui.crear_panel_host()
