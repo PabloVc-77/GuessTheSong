@@ -16,8 +16,7 @@ import unicodedata
 from flask import Flask, request
 from flask_socketio import SocketIO, emit
 from yt_dlp import YoutubeDL
-from pydub import AudioSegment
-from pydub.playback import play
+import subprocess
 
 import qrcode
 import base64
@@ -76,48 +75,44 @@ def elegir_cancion():
 
 def descargar_y_reproducir(titulo, artista):
     busqueda = f"{titulo} {artista} audio"
-    temp_dir = tempfile.TemporaryDirectory()
-    temp_path = temp_dir.name
 
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'quiet': True,
-        'outtmpl': os.path.join(temp_path, '%(title)s.%(ext)s'),
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }],
-    }
-
+    temp_dir = tempfile.mkdtemp()
     try:
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'quiet': True,
+            'outtmpl': os.path.join(temp_dir, '%(id)s.%(ext)s'),
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '128',
+            }],
+        }
         with YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(f"ytsearch1:{busqueda}", download=True)
-            # Obtener el nombre base esperado
-            archivo_base = ydl.prepare_filename(info['entries'][0])
-            # Reemplazar extensión por .mp3 (output final del postprocessor)
-            archivo = os.path.splitext(archivo_base)[0] + ".mp3"
+            entry = info['entries'][0]
+            archivo = os.path.join(temp_dir, entry['id'] + '.mp3')
+            duracion = entry.get('duration', 180)
 
+        inicio = random.randint(0, max(0, duracion - T_FRAGMENT - 5))
+        wav_temp = os.path.join(temp_dir, "frag.wav")
 
-        audio = AudioSegment.from_file(archivo)
-        duracion = len(audio)
-        if duracion <= T_FRAGMENT * 1000:
-            fragmento = audio
-        else:
-            inicio = random.randint(0, duracion - T_FRAGMENT * 1000 - 5000) # Selecionar fragmento
-            fragmento = audio[inicio:inicio + T_FRAGMENT* 1000]
+        result = subprocess.run([
+            "ffmpeg", "-y", "-ss", str(inicio), "-i", archivo,
+            "-t", str(T_FRAGMENT), "-acodec", "pcm_s16le", "-ar", "44100", wav_temp
+        ], capture_output=True)
 
-        wav_temp = os.path.join(temp_path, f"fragmento_{random.randint(1000,9999)}.wav")
-        fragmento.export(wav_temp, format="wav")
+        if result.returncode != 0:
+            print("❌ ffmpeg error:", result.stderr.decode(errors="ignore"))
+            return False
 
         pygame.mixer.music.load(wav_temp)
         pygame.mixer.music.play()
         time.sleep(T_FRAGMENT)
-        pygame.mixer.music.unload() #Dejar de utilizar el recurso
+        pygame.mixer.music.unload()
 
         fragmentos_temporales.append(wav_temp)
         fragmentos_temporales.append(archivo)
-
         return True
 
     except Exception as e:
