@@ -26,10 +26,10 @@ respuesta_actual = {"titulo": "", "artista": "", "completa": ""}
 pedidores_30s = set()            # nombres que pidieron más tiempo
 fragmentos_temporales = []       # archivos a borrar al final
 partida_terminada = False
-sid_host = None
 temporizador_activo = False
 tiempo_restante = 0
 panel_ranking_texto = ""
+panel_ranking_data  = []   # [(nombre, pts), ...] ordenado, persiste tras reset()
 descarga_activa = False
 descarga_progreso = 0.0   # 0.0 – 1.0
 descarga_fase = ""        # "descargando" | "procesando" | ""
@@ -138,10 +138,16 @@ def descargar_y_reproducir(titulo, artista):
         descarga_fase = ""
         return False
 
+def emit_a_todos(event, data):
+    sids = list(jugadores_conectados.keys())
+    print(f"📡 emit({event!r}) → {len(sids)} jugadores: {sids}")
+    for sid in sids:
+        socketio.emit(event, data, to=sid, namespace='/')
+
 def anadir_30s_extra():
     global tiempo_restante
     tiempo_restante += 30
-    socketio.emit("estado", "🕒 Todos solicitaron +30s. Tiempo añadido.")
+    emit_a_todos("estado", "🕒 Todos solicitaron +30s. Tiempo añadido.")
 
 
 # ---------- Evaluación ----------
@@ -175,22 +181,12 @@ def evaluar_respuestas():
         socketio.emit("resultado", resultado, to=sid)
         resumen.append(f"{nombre}: {puntuaciones[nombre]} pts")
 
-    if sid_host:
-        detalles = []
-        for nombre in puntuaciones:
-            if nombre == "host":
-                continue
-            detalles.append(f"{nombre} dijo: {respuestas.get(nombre, '⏳ Sin respuesta')}")
-        socketio.emit("estado", "\n".join(detalles), to=sid_host)
-
-    if sid_host:
-        socketio.emit("puntuaciones", "\n".join(resumen), to=sid_host)
-
-    global panel_ranking_texto
+    global panel_ranking_texto, panel_ranking_data
     sorted_pts = sorted([(n, puntuaciones[n]) for n in puntuaciones if n != "host"],
                         key=lambda x: x[1], reverse=True)
     panel_ranking_texto = "📊 Clasificación:\n" + "\n".join(
         f"{i+1}. {n}: {p} pts" for i, (n, p) in enumerate(sorted_pts))
+    panel_ranking_data = sorted_pts
 
 # ---------- Temporizador ----------
 
@@ -204,7 +200,7 @@ def iniciar_ronda():
     respuesta_actual["artista"] = artista
     respuesta_actual["completa"] = f"{titulo} - {artista}"
 
-    socketio.emit("estado", "🎵 Preparando fragmento de audio...")
+    emit_a_todos("estado", "🎵 Preparando fragmento de audio...")
 
     def reproduccion_y_luego():
         flag = descargar_y_reproducir(titulo, artista)
@@ -222,16 +218,16 @@ def iniciar_temporizador():
     tiempo_restante = T_RESP
     pedidores_30s.clear()
 
-    socketio.emit("estado", "🎵 ¡Responde ahora! Tienes " + str(T_RESP) + " segundos...")
+    emit_a_todos("estado", "🎵 ¡Responde ahora! Tienes " + str(T_RESP) + " segundos...")
 
     def cuenta_atras():
         global temporizador_activo, tiempo_restante
         while tiempo_restante > 0:
-            socketio.emit("temporizador", tiempo_restante)
+            emit_a_todos("temporizador", tiempo_restante)
             time.sleep(1)
             tiempo_restante -= 1
-        socketio.emit("temporizador", 0)
-        socketio.emit("estado", "⏰ ¡Tiempo terminado!")
+        emit_a_todos("temporizador", 0)
+        emit_a_todos("estado", "⏰ ¡Tiempo terminado!")
         temporizador_activo = False
         evaluar_respuestas()
 
@@ -247,16 +243,10 @@ def reset():
     for sid in jugadores_conectados:
         socketio.emit("mostrar_popup_ronda", f"Ronda {ronda_actual - 1} terminada. ¡Prepárate para la ronda {ronda_actual}!", to=sid)
 
-    # Update score panel for host
-    if sid_host:
-        resumen = [f"{n}: {puntuaciones.get(n, 0)} pts" for n in puntuaciones if n != "host"]
-        socketio.emit("puntuaciones", "\n".join(resumen), to=sid_host)
-        socketio.emit("round", f"Canción {cancion_actual}/{ROUNDS} de la ronda {ronda_actual}", to=sid_host)
-
 def reset_all():
     global jugadores_conectados, puntuaciones, respuestas
     global respuesta_actual, pedidores_30s, fragmentos_temporales
-    global partida_terminada, sid_host
+    global partida_terminada
     global temporizador_activo, tiempo_restante
     global cancion_actual, ronda_actual
 
@@ -297,20 +287,21 @@ def action_nueva_ronda():
     if cancion_actual > ROUNDS:
         cancion_actual = 0
         ronda_actual += 1
-        socketio.emit("estado", f"🎯 ¡Ronda {ronda_actual - 1} terminada! Se reinician los puntos.")
+        emit_a_todos("estado", f"🎯 ¡Ronda {ronda_actual - 1} terminada! Se reinician los puntos.")
         print(f"🎯 Ronda {ronda_actual - 1} terminada, reiniciando puntuaciones...")
         reset()
         return
     print(f"▶️ Canción {cancion_actual}/{ROUNDS} de la ronda {ronda_actual}")
-    socketio.emit("estado", f"🎵 Ronda {ronda_actual}, canción {cancion_actual}/{ROUNDS}")
+    emit_a_todos("estado", f"🎵 Ronda {ronda_actual}, canción {cancion_actual}/{ROUNDS}")
     iniciar_ronda()
 
 def action_terminar_partida():
-    global partida_terminada, cancion_actual, ronda_actual, panel_ranking_texto
+    global partida_terminada, cancion_actual, ronda_actual, panel_ranking_texto, panel_ranking_data
     partida_terminada = True
     ranking = sorted(puntuaciones.items(), key=lambda x: x[1], reverse=True)
     texto = "\n🏆 Ranking final:\n" + "\n".join(f"{n}: {p} pts" for n, p in ranking if n != "host")
     panel_ranking_texto = texto
+    panel_ranking_data  = [(n, p) for n, p in ranking if n != "host"]
     print(texto)
     for sid in list(jugadores_conectados.keys()):
         socketio.emit("estado", texto, to=sid)
@@ -345,9 +336,12 @@ def desconectar():
 
 @socketio.on("registrar")
 def registrar(nombre):
+    # Eliminar SID antiguo si el mismo jugador reconecta
+    for old_sid in [s for s, n in jugadores_conectados.items() if n == nombre]:
+        jugadores_conectados.pop(old_sid, None)
     jugadores_conectados[request.sid] = nombre
     puntuaciones.setdefault(nombre, 0)
-    print(f"🟢 Registrado: {nombre}")
+    print(f"🟢 Registrado: {nombre} (sid={request.sid})")
     emit("registrado", f"Bienvenido, {nombre}!")
     emit("estado", "Esperando inicio de la ronda...", to=request.sid)
 
@@ -361,16 +355,6 @@ def recibir_respuesta(data):
     texto = data.get("respuesta", "")
     respuestas[nombre] = texto
     emit("resultado", f"✅ Respuesta registrada.", to=request.sid)
-
-    # Emitir actualización del ranking
-    if sid_host:
-        resumen = []
-        for n in puntuaciones:
-            if n == "host":
-                continue
-            check = "✅" if n in respuestas else "❌"
-            resumen.append(f"{check} {n}: {puntuaciones.get(n, 0)} pts")
-        socketio.emit("puntuaciones", "\n".join(resumen), to=sid_host)
 
     if len(respuestas) == len([n for n in puntuaciones if n != "host"]):
         print("📩 Todos han respondido. Finalizando ronda...")
@@ -397,7 +381,7 @@ def pedir_30s(nombre):
     if nombre in puntuaciones:
         pedidores_30s.add(nombre)
         print(f"🕒 {nombre} ha solicitado +30s ({len(pedidores_30s)}/{len(puntuaciones)-1})")
-        socketio.emit("estado", f"🕒 {nombre} ha solicitado +30s ({len(pedidores_30s)}/{len(puntuaciones)-1})")
+        emit_a_todos("estado", f"🕒 {nombre} ha solicitado +30s ({len(pedidores_30s)}/{len(puntuaciones)-1})")
 
         if len(pedidores_30s) == len(puntuaciones)-1:
             print("🕒 TODOS han pedido +30s. Añadiendo tiempo.")
@@ -408,7 +392,7 @@ def pedir_30s(nombre):
 
 if __name__ == "__main__":
     threading.Thread(
-        target=lambda: socketio.run(app, host="0.0.0.0", port=7777, debug=False, use_reloader=False),
+        target=lambda: socketio.run(app, host="0.0.0.0", port=7777, debug=False, use_reloader=False, allow_unsafe_werkzeug=True),
         daemon=True
     ).start()
     time.sleep(0.5)

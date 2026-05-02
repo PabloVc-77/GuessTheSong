@@ -2,120 +2,142 @@ import tkinter as tk
 import customtkinter as ctk
 from PIL import Image
 import qrcode
-
-import run
+import traceback
+import sys
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("green")
 
-BG       = "#0f0f0f"
-SURFACE  = "#1a1a1a"
-ACCENT   = "#1db954"   # verde Spotify-ish
-TEXT     = "#e0e0e0"
-MUTED    = "#666666"
-WARN     = "#ffaa00"
+BG      = "#0f0f0f"
+SURFACE = "#1a1a1a"
+ACCENT  = "#1db954"
+TEXT    = "#e0e0e0"
+MUTED   = "#666666"
+WARN    = "#ffaa00"
 
 
 def crear_panel_host():
+    run = sys.modules['__main__']
     url = f"http://{run.obtener_ip_local()}:7777"
 
     root = ctk.CTk()
     root.title("Panel de Control · Adivina la Canción")
     root.configure(fg_color=BG)
     root.resizable(True, True)
-    root.minsize(300, 520)
+    root.minsize(520, 540)
 
-    # --- URL ---
-    ctk.CTkLabel(root, text="Dirección para jugadores",
-                 text_color=MUTED, font=ctk.CTkFont(size=11)).pack(pady=(20, 2))
-    ctk.CTkLabel(root, text=url, text_color=ACCENT,
-                 font=ctk.CTkFont(family="Courier New", size=13, weight="bold")).pack()
+    # ── TOP: QR (izq) + info (der) ───────────────────────────────
+    top = ctk.CTkFrame(root, fg_color="transparent")
+    top.pack(fill="x", padx=20, pady=(20, 0))
+    top.columnconfigure(0, weight=0)
+    top.columnconfigure(1, weight=1)
 
-    # --- QR ---
-    qr_pil = qrcode.make(url).resize((160, 160), Image.LANCZOS).convert("RGB")
-    qr_img = ctk.CTkImage(light_image=qr_pil, dark_image=qr_pil, size=(160, 160))
-    ctk.CTkLabel(root, image=qr_img, text="").pack(pady=12)
+    # — Columna izquierda: QR + URL —
+    left = ctk.CTkFrame(top, fg_color=SURFACE, corner_radius=12)
+    left.grid(row=0, column=0, sticky="ns", padx=(0, 14))
 
-    # --- Info de ronda ---
+    qr_pil = qrcode.make(url).resize((150, 150), Image.LANCZOS).convert("RGB")
+    qr_img = ctk.CTkImage(light_image=qr_pil, dark_image=qr_pil, size=(150, 150))
+    ctk.CTkLabel(left, image=qr_img, text="").pack(padx=14, pady=(14, 6))
+    ctk.CTkLabel(left, text=url, text_color=ACCENT,
+                 font=ctk.CTkFont(family="Courier New", size=10, weight="bold"),
+                 wraplength=160).pack(padx=12, pady=(0, 14))
+
+    # — Columna derecha: ronda + timer + descarga —
+    right = ctk.CTkFrame(top, fg_color=SURFACE, corner_radius=12)
+    right.grid(row=0, column=1, sticky="nsew")
+
+    ctk.CTkLabel(right, text="RONDA", text_color=MUTED,
+                 font=ctk.CTkFont(size=10, weight="bold")).pack(anchor="w", padx=18, pady=(16, 2))
     round_var = tk.StringVar()
-    ctk.CTkLabel(root, textvariable=round_var,
-                 text_color=TEXT, font=ctk.CTkFont(size=13, weight="bold")).pack()
+    ctk.CTkLabel(right, textvariable=round_var, text_color=TEXT,
+                 font=ctk.CTkFont(size=15, weight="bold")).pack(anchor="w", padx=18)
 
-    # --- Temporizador ---
-    timer_frame = ctk.CTkFrame(root, fg_color="transparent")
-    timer_frame.pack(pady=4)
-    ctk.CTkLabel(timer_frame, text="Tiempo: ",
-                 text_color=MUTED, font=ctk.CTkFont(size=12)).pack(side="left")
+    ctk.CTkLabel(right, text="TIEMPO RESTANTE", text_color=MUTED,
+                 font=ctk.CTkFont(size=10, weight="bold")).pack(anchor="w", padx=18, pady=(14, 2))
     timer_var = tk.StringVar(value="--")
-    ctk.CTkLabel(timer_frame, textvariable=timer_var,
-                 text_color=WARN, font=ctk.CTkFont(size=12, weight="bold")).pack(side="left")
+    ctk.CTkLabel(right, textvariable=timer_var, text_color=WARN,
+                 font=ctk.CTkFont(size=34, weight="bold")).pack(anchor="w", padx=18)
 
-    # --- Barra de descarga ---
-    prog_frame = ctk.CTkFrame(root, fg_color="transparent")
-    prog_frame.pack(fill="x", padx=18, pady=(8, 0))
-    descarga_label_var = tk.StringVar(value="")
-    ctk.CTkLabel(prog_frame, textvariable=descarga_label_var,
-                 text_color=MUTED, font=ctk.CTkFont(size=11), anchor="w").pack(fill="x")
-    progressbar = ctk.CTkProgressBar(prog_frame, progress_color=ACCENT,
-                                     fg_color=SURFACE, height=8, corner_radius=4)
+    ctk.CTkLabel(right, text="DESCARGA", text_color=MUTED,
+                 font=ctk.CTkFont(size=10, weight="bold")).pack(anchor="w", padx=18, pady=(14, 2))
+    descarga_label_var = tk.StringVar(value="—")
+    ctk.CTkLabel(right, textvariable=descarga_label_var, text_color=TEXT,
+                 font=ctk.CTkFont(size=11)).pack(anchor="w", padx=18)
+    progressbar = ctk.CTkProgressBar(right, progress_color=ACCENT,
+                                     fg_color="#2a2a2a", height=8, corner_radius=4)
     progressbar.set(0)
-    progressbar.pack(fill="x", pady=(3, 0))
+    progressbar.pack(fill="x", padx=18, pady=(4, 18))
 
-    # --- Cuadro de jugadores ---
-    ctk.CTkLabel(root, text="JUGADORES",
-                 text_color=MUTED, font=ctk.CTkFont(size=10, weight="bold")).pack(pady=(16, 4))
+    # ── JUGADORES ────────────────────────────────────────────────
+    ctk.CTkLabel(root, text="JUGADORES", text_color=MUTED,
+                 font=ctk.CTkFont(size=10, weight="bold")).pack(anchor="w", padx=20, pady=(18, 6))
+
     scores_box = ctk.CTkTextbox(root, fg_color=SURFACE, text_color=TEXT,
-                                font=ctk.CTkFont(family="Courier New", size=12),
-                                corner_radius=8, state="disabled")
-    scores_box.pack(padx=15, fill="both", expand=True)
+                                font=ctk.CTkFont(family="Courier New", size=13),
+                                corner_radius=12)
+    scores_box.pack(fill="both", expand=True, padx=20)
 
-    # --- Botones ---
+    # ── BOTONES ──────────────────────────────────────────────────
     btn_frame = ctk.CTkFrame(root, fg_color="transparent")
     btn_frame.pack(pady=18)
-    ctk.CTkButton(btn_frame, text="▶  Nueva Ronda", width=140,
+    ctk.CTkButton(btn_frame, text="▶  Nueva Ronda", width=155,
                   command=lambda: run.socketio.start_background_task(run.action_nueva_ronda),
                   fg_color=SURFACE, hover_color="#2a2a2a", text_color=TEXT,
-                  border_width=1, border_color="#333333",
+                  border_width=1, border_color="#333",
                   font=ctk.CTkFont(size=12), corner_radius=8).pack(side="left", padx=6)
-    ctk.CTkButton(btn_frame, text="✕  Terminar", width=140,
+    ctk.CTkButton(btn_frame, text="✕  Terminar", width=155,
                   command=lambda: run.socketio.start_background_task(run.action_terminar_partida),
                   fg_color=SURFACE, hover_color="#2a2a2a", text_color="#ff5555",
-                  border_width=1, border_color="#333333",
+                  border_width=1, border_color="#333",
                   font=ctk.CTkFont(size=12), corner_radius=8).pack(side="left", padx=6)
 
-    # --- Loop de actualización (500 ms) ---
+    # ── Loop de actualización (500 ms) ───────────────────────────
+
     def actualizar():
-        round_var.set(f"Canción {run.cancion_actual}/{run.ROUNDS} · Ronda {run.ronda_actual}")
-        timer_var.set(str(run.tiempo_restante) if run.temporizador_activo else "--")
+        try:
+            round_var.set(f"Canción {run.cancion_actual}/{run.ROUNDS} · Ronda {run.ronda_actual}")
+            timer_var.set(str(run.tiempo_restante) if run.temporizador_activo else "--")
 
-        if run.descarga_activa:
-            if run.descarga_fase == "descargando":
-                descarga_label_var.set(f"⬇  Descargando... {int(run.descarga_progreso * 100)}%")
-                progressbar.set(run.descarga_progreso)
-            elif run.descarga_fase == "procesando":
-                descarga_label_var.set("⚙  Procesando audio...")
-                progressbar.set(1.0)
-        else:
-            descarga_label_var.set("")
-            progressbar.set(0)
+            # Barra de descarga
+            if run.descarga_activa:
+                if run.descarga_fase == "descargando":
+                    descarga_label_var.set(f"⬇  Descargando... {int(run.descarga_progreso * 100)}%")
+                    progressbar.set(run.descarga_progreso)
+                elif run.descarga_fase == "procesando":
+                    descarga_label_var.set("⚙  Procesando audio...")
+                    progressbar.set(1.0)
+            else:
+                descarga_label_var.set("—")
+                progressbar.set(0)
 
-        scores_box.configure(state="normal")
-        scores_box.delete("1.0", "end")
-        if run.temporizador_activo:
-            for nombre, pts in run.puntuaciones.items():
-                if nombre == "host":
-                    continue
-                mark = "✓" if nombre in run.respuestas else " "
-                scores_box.insert("end", f"[{mark}] {nombre}: {pts} pts\n")
-        elif run.panel_ranking_texto:
-            scores_box.insert("end", run.panel_ranking_texto)
-        else:
-            for nombre, pts in run.puntuaciones.items():
-                if nombre == "host":
-                    continue
-                scores_box.insert("end", f"{nombre}: {pts} pts\n")
-        scores_box.configure(state="disabled")
+            # Snapshot thread-safe del dict antes de iterar
+            puntuaciones = list(run.puntuaciones.items())
+            respuestas   = run.respuestas
 
+            if run.temporizador_activo:
+                jugadores = sorted(
+                    [(n, p, "✓" if n in respuestas else " ")
+                     for n, p in puntuaciones if n != "host"],
+                    key=lambda x: x[1], reverse=True
+                )
+            elif run.panel_ranking_data:
+                jugadores = [(n, p, "🏆" if i == 0 else f"{i+1}.")
+                             for i, (n, p) in enumerate(run.panel_ranking_data)]
+            else:
+                jugadores = sorted(
+                    [(n, p, "") for n, p in puntuaciones if n != "host"],
+                    key=lambda x: x[1], reverse=True
+                )
+
+            lines = []
+            for nombre, pts, mark in jugadores:
+                lines.append(f"  {mark:<4} {nombre:<20} {pts} pts")
+            scores_box.delete("1.0", "end")
+            scores_box.insert("1.0", "\n".join(lines) or "—  Sin jugadores")
+        except Exception as e:
+            print(f"⚠️ Error en actualizar GUI: {e}")
+            traceback.print_exc()
         root.after(500, actualizar)
 
     root.after(500, actualizar)

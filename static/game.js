@@ -1,5 +1,10 @@
-let socket = io();
+let socket = io({ transports: ['polling'] });
 let jugador = "";
+
+// Re-registrar automáticamente si el socket reconecta
+socket.on("connect", () => {
+  if (jugador) socket.emit("registrar", jugador);
+});
 
 // Dark/Light toggle
 document.getElementById('mode-toggle').addEventListener('click', () => {
