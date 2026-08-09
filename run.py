@@ -30,6 +30,7 @@ temporizador_activo = False
 tiempo_restante = 0
 panel_ranking_texto = ""
 panel_ranking_data  = []   # [(nombre, pts), ...] ordenado, persiste tras reset()
+panel_reveal = None        # {correcta, respuestas: [(nombre, texto, pts_ronda), ...]} tras evaluar
 descarga_activa = False
 descarga_progreso = 0.0   # 0.0 – 1.0
 descarga_fase = ""        # "descargando" | "procesando" | ""
@@ -154,6 +155,7 @@ def anadir_30s_extra():
 
 def evaluar_respuestas():
     resumen = []
+    revelacion = []
 
     for sid, nombre in jugadores_conectados.items():
         if nombre == "host":
@@ -180,20 +182,29 @@ def evaluar_respuestas():
         resultado += f"La respuesta correcta era: {respuesta_actual['completa']}"
         socketio.emit("resultado", resultado, to=sid)
         resumen.append(f"{nombre}: {puntuaciones[nombre]} pts")
+        revelacion.append((nombre, respuesta or "(sin respuesta)", puntos))
 
-    global panel_ranking_texto, panel_ranking_data
+    global panel_ranking_texto, panel_ranking_data, panel_reveal
     sorted_pts = sorted([(n, puntuaciones[n]) for n in puntuaciones if n != "host"],
                         key=lambda x: x[1], reverse=True)
     panel_ranking_texto = "📊 Clasificación:\n" + "\n".join(
         f"{i+1}. {n}: {p} pts" for i, (n, p) in enumerate(sorted_pts))
     panel_ranking_data = sorted_pts
+    # Ordenar revelación igual que el ranking
+    orden = {n: i for i, (n, _) in enumerate(sorted_pts)}
+    revelacion.sort(key=lambda x: orden.get(x[0], 999))
+    panel_reveal = {
+        "correcta": respuesta_actual["completa"],
+        "respuestas": revelacion,
+    }
 
 # ---------- Temporizador ----------
 
 def iniciar_ronda():
-    global respuestas, temporizador_activo
+    global respuestas, temporizador_activo, panel_reveal
     respuestas = {}
     temporizador_activo = False
+    panel_reveal = None
 
     titulo, artista = elegir_cancion()
     respuesta_actual["titulo"] = titulo
@@ -248,11 +259,12 @@ def reset_all():
     global respuesta_actual, pedidores_30s, fragmentos_temporales
     global partida_terminada
     global temporizador_activo, tiempo_restante
-    global cancion_actual, ronda_actual
+    global cancion_actual, ronda_actual, panel_reveal
 
     respuestas = {}
     respuesta_actual = {"titulo": "", "artista": "", "completa": ""}
     pedidores_30s.clear()
+    panel_reveal = None
 
     temporizador_activo = False
     tiempo_restante = 0
@@ -296,12 +308,13 @@ def action_nueva_ronda():
     iniciar_ronda()
 
 def action_terminar_partida():
-    global partida_terminada, cancion_actual, ronda_actual, panel_ranking_texto, panel_ranking_data
+    global partida_terminada, cancion_actual, ronda_actual, panel_ranking_texto, panel_ranking_data, panel_reveal
     partida_terminada = True
-    ranking = sorted(puntuaciones.items(), key=lambda x: x[1], reverse=True)
-    texto = "\n🏆 Ranking final:\n" + "\n".join(f"{n}: {p} pts" for n, p in ranking if n != "host")
+    ranking = [(n, p) for n, p in sorted(puntuaciones.items(), key=lambda x: x[1], reverse=True) if n != "host"]
+    texto = "\n🏆 Ranking final:\n" + "\n".join(f"{i+1}. {n}: {p} pts" for i, (n, p) in enumerate(ranking))
     panel_ranking_texto = texto
-    panel_ranking_data  = [(n, p) for n, p in ranking if n != "host"]
+    panel_ranking_data  = ranking
+    panel_reveal = None
     print(texto)
     for sid in list(jugadores_conectados.keys()):
         socketio.emit("estado", texto, to=sid)

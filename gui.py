@@ -24,7 +24,7 @@ def crear_panel_host():
     root.title("Panel de Control · Adivina la Canción")
     root.configure(fg_color=BG)
     root.resizable(True, True)
-    root.minsize(520, 540)
+    root.minsize(640, 640)
 
     # ── TOP: QR (izq) + info (der) ───────────────────────────────
     top = ctk.CTkFrame(root, fg_color="transparent")
@@ -40,7 +40,7 @@ def crear_panel_host():
     qr_img = ctk.CTkImage(light_image=qr_pil, dark_image=qr_pil, size=(150, 150))
     ctk.CTkLabel(left, image=qr_img, text="").pack(padx=14, pady=(14, 6))
     ctk.CTkLabel(left, text=url, text_color=ACCENT,
-                 font=ctk.CTkFont(family="Courier New", size=10, weight="bold"),
+                 font=ctk.CTkFont(family="Courier New", size=12, weight="bold"),
                  wraplength=160).pack(padx=12, pady=(0, 14))
 
     # — Columna derecha: ronda + timer + descarga —
@@ -48,22 +48,22 @@ def crear_panel_host():
     right.grid(row=0, column=1, sticky="nsew")
 
     ctk.CTkLabel(right, text="RONDA", text_color=MUTED,
-                 font=ctk.CTkFont(size=10, weight="bold")).pack(anchor="w", padx=18, pady=(16, 2))
+                 font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=18, pady=(16, 2))
     round_var = tk.StringVar()
     ctk.CTkLabel(right, textvariable=round_var, text_color=TEXT,
-                 font=ctk.CTkFont(size=15, weight="bold")).pack(anchor="w", padx=18)
+                 font=ctk.CTkFont(size=22, weight="bold")).pack(anchor="w", padx=18)
 
     ctk.CTkLabel(right, text="TIEMPO RESTANTE", text_color=MUTED,
-                 font=ctk.CTkFont(size=10, weight="bold")).pack(anchor="w", padx=18, pady=(14, 2))
+                 font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=18, pady=(14, 2))
     timer_var = tk.StringVar(value="--")
     ctk.CTkLabel(right, textvariable=timer_var, text_color=WARN,
-                 font=ctk.CTkFont(size=34, weight="bold")).pack(anchor="w", padx=18)
+                 font=ctk.CTkFont(size=48, weight="bold")).pack(anchor="w", padx=18)
 
     ctk.CTkLabel(right, text="DESCARGA", text_color=MUTED,
-                 font=ctk.CTkFont(size=10, weight="bold")).pack(anchor="w", padx=18, pady=(14, 2))
+                 font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=18, pady=(14, 2))
     descarga_label_var = tk.StringVar(value="—")
     ctk.CTkLabel(right, textvariable=descarga_label_var, text_color=TEXT,
-                 font=ctk.CTkFont(size=11)).pack(anchor="w", padx=18)
+                 font=ctk.CTkFont(size=16)).pack(anchor="w", padx=18)
     progressbar = ctk.CTkProgressBar(right, progress_color=ACCENT,
                                      fg_color="#2a2a2a", height=8, corner_radius=4)
     progressbar.set(0)
@@ -71,26 +71,26 @@ def crear_panel_host():
 
     # ── JUGADORES ────────────────────────────────────────────────
     ctk.CTkLabel(root, text="JUGADORES", text_color=MUTED,
-                 font=ctk.CTkFont(size=10, weight="bold")).pack(anchor="w", padx=20, pady=(18, 6))
+                 font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=20, pady=(18, 6))
 
     scores_box = ctk.CTkTextbox(root, fg_color=SURFACE, text_color=TEXT,
-                                font=ctk.CTkFont(family="Courier New", size=13),
+                                font=ctk.CTkFont(family="Segoe UI", size=26, weight="bold"),
                                 corner_radius=12)
     scores_box.pack(fill="both", expand=True, padx=20)
 
     # ── BOTONES ──────────────────────────────────────────────────
     btn_frame = ctk.CTkFrame(root, fg_color="transparent")
     btn_frame.pack(pady=18)
-    ctk.CTkButton(btn_frame, text="▶  Nueva Ronda", width=155,
+    ctk.CTkButton(btn_frame, text="▶  Nueva Ronda", width=180, height=40,
                   command=lambda: run.socketio.start_background_task(run.action_nueva_ronda),
                   fg_color=SURFACE, hover_color="#2a2a2a", text_color=TEXT,
                   border_width=1, border_color="#333",
-                  font=ctk.CTkFont(size=12), corner_radius=8).pack(side="left", padx=6)
-    ctk.CTkButton(btn_frame, text="✕  Terminar", width=155,
+                  font=ctk.CTkFont(size=15), corner_radius=8).pack(side="left", padx=6)
+    ctk.CTkButton(btn_frame, text="✕  Terminar", width=180, height=40,
                   command=lambda: run.socketio.start_background_task(run.action_terminar_partida),
                   fg_color=SURFACE, hover_color="#2a2a2a", text_color="#ff5555",
                   border_width=1, border_color="#333",
-                  font=ctk.CTkFont(size=12), corner_radius=8).pack(side="left", padx=6)
+                  font=ctk.CTkFont(size=15), corner_radius=8).pack(side="left", padx=6)
 
     # ── Loop de actualización (500 ms) ───────────────────────────
 
@@ -114,27 +114,44 @@ def crear_panel_host():
             # Snapshot thread-safe del dict antes de iterar
             puntuaciones = list(run.puntuaciones.items())
             respuestas   = run.respuestas
+            reveal       = run.panel_reveal
+
+            lines = []
 
             if run.temporizador_activo:
                 jugadores = sorted(
-                    [(n, p, "✓" if n in respuestas else " ")
+                    [(n, p, "✓" if n in respuestas else "·")
                      for n, p in puntuaciones if n != "host"],
                     key=lambda x: x[1], reverse=True
                 )
+                for nombre, pts, mark in jugadores:
+                    lines.append(f"  {mark}  {nombre}  —  {pts} pts")
+
+            elif reveal:
+                lines.append(f"  Correcta: {reveal['correcta']}")
+                lines.append("")
+                pts_totales = dict(run.panel_ranking_data)
+                for i, (nombre, texto, pts_ronda) in enumerate(reveal["respuestas"]):
+                    total = pts_totales.get(nombre, 0)
+                    signo = f"+{pts_ronda}" if pts_ronda else "+0"
+                    lines.append(f"  {i+1}.  {nombre}  —  {total} pts  ({signo})")
+                    lines.append(f"      →  {texto}")
+                    lines.append("")
+
             elif run.panel_ranking_data:
-                jugadores = [(n, p, "🏆" if i == 0 else f"{i+1}.")
-                             for i, (n, p) in enumerate(run.panel_ranking_data)]
+                for i, (nombre, pts) in enumerate(run.panel_ranking_data):
+                    lines.append(f"  {i+1}.  {nombre}  —  {pts} pts")
+
             else:
                 jugadores = sorted(
-                    [(n, p, "") for n, p in puntuaciones if n != "host"],
+                    [(n, p) for n, p in puntuaciones if n != "host"],
                     key=lambda x: x[1], reverse=True
                 )
+                for nombre, pts in jugadores:
+                    lines.append(f"  {nombre}  —  {pts} pts")
 
-            lines = []
-            for nombre, pts, mark in jugadores:
-                lines.append(f"  {mark:<4} {nombre:<20} {pts} pts")
             scores_box.delete("1.0", "end")
-            scores_box.insert("1.0", "\n".join(lines) or "—  Sin jugadores")
+            scores_box.insert("1.0", "\n".join(lines).rstrip() or "—  Sin jugadores")
         except Exception as e:
             print(f"⚠️ Error en actualizar GUI: {e}")
             traceback.print_exc()
