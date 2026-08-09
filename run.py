@@ -39,7 +39,7 @@ descarga_fase = ""        # "descargando" | "procesando" | ""
 LISTA = 'Olaf.txt'    # Lista de canciones
 T_FRAGMENT = 5        # Duracion del fragmento
 T_RESP = 45           # Tiempo para responder
-ROUNDS = 3  # Número de canciones por ronda
+ROUNDS = 10  # Número de canciones por ronda
 
 # ---------- ESTADO ----------
 cancion_actual = 0
