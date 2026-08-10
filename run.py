@@ -133,12 +133,21 @@ def evaluar_respuestas():
     # Ordenar revelación igual que el ranking
     orden = {n: i for i, (n, _) in enumerate(sorted_pts)}
     revelacion.sort(key=lambda item: orden.get(item["nombre"], 999))
+    if game_mode == "continue_lyrics":
+        max_words = max(
+            (
+                continue_lyrics_game.count_words(respuesta)
+                for respuesta in respuestas.values()
+            ),
+            default=0,
+        )
+
+        correcta = continue_lyrics_game.get_answer_prefix(max_words)
+    else:
+        correcta = respuesta_actual["completa"]
+
     panel_reveal = {
-        "correcta": (
-            "Resultados de la continuación"
-            if game_mode == "continue_lyrics"
-            else respuesta_actual["completa"]
-        ),
+        "correcta": correcta,
         "respuestas": revelacion,
     }
 

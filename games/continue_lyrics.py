@@ -116,3 +116,15 @@ class ContinueLyricsGame:
     @staticmethod
     def _display_words(text):
         return re.findall(r"[^\W_]+", text, flags=re.UNICODE)
+
+    def count_words(self, text):
+        """Cuenta las palabras de una respuesta usando las mismas reglas del juego."""
+        return len(self._display_words(text))
+
+    def get_answer_prefix(self, word_count):
+        """Devuelve las primeras ``word_count`` palabras de la continuación correcta."""
+        if word_count <= 0:
+            return ""
+
+        words = self._display_words(self.answer_lyrics)
+        return " ".join(words[:word_count])
