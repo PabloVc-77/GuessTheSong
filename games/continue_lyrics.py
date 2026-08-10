@@ -22,6 +22,7 @@ class ContinueLyricsGame:
         self.audio_start = None
         self.audio_duration = None
         self.answer_lyrics = ""
+        self.last_played_line = ""
         self.answer_words = []
 
     def prepare_round(self, title, artist, duration):
@@ -49,6 +50,10 @@ class ContinueLyricsGame:
             line["text"] for line in lines[selected_index:]
         )
         self.answer_words = self._words(self.answer_lyrics)
+        if selected_index > 0:
+            self.last_played_line = lines[selected_index - 1]["text"]
+        else:
+            self.last_played_line = ""
 
         return {
             "title": title,
