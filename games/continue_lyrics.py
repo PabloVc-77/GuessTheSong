@@ -1,0 +1,113 @@
+"""Reglas del modo de juego «Continúa la letra»."""
+
+import random
+import re
+import unicodedata
+
+from audio import AudioPlayer
+from lyrics import get_lyrics, parse_lrc
+
+
+class ContinueLyricsGame:
+    """Prepara y evalúa rondas a partir de letras LRC sincronizadas."""
+
+    def __init__(self, audio_player=None, lyrics_provider=get_lyrics,
+                 fragment_duration=8, random_choice=None):
+        self.audio_player = audio_player or AudioPlayer()
+        self.lyrics_provider = lyrics_provider
+        self.fragment_duration = fragment_duration
+        self.random_choice = random_choice or random.choice
+        self.lyrics = []
+        self.cut_time = None
+        self.audio_start = None
+        self.audio_duration = None
+        self.answer_lyrics = ""
+        self.answer_words = []
+
+    def prepare_round(self, title, artist, duration):
+        """Prepara una ronda y devuelve sus datos, o ``None`` si no es viable.
+
+        El corte coincide con el inicio de una línea de la letra. Esa línea y
+        las posteriores forman la continuación correcta.
+        """
+        raw_lyrics = self.lyrics_provider(title, artist)
+        lines = parse_lrc(raw_lyrics) if raw_lyrics else []
+        candidates = [
+            index for index, line in enumerate(lines[1:], start=1)
+            if line["time"] <= duration
+        ]
+        if not candidates:
+            return None
+
+        selected_index = self.random_choice(candidates)
+        selected_line = lines[selected_index]
+        self.lyrics = lines
+        self.cut_time = selected_line["time"]
+        self.audio_duration = min(self.fragment_duration, self.cut_time)
+        self.audio_start = self.cut_time - self.audio_duration
+        self.answer_lyrics = "\n".join(
+            line["text"] for line in lines[selected_index:]
+        )
+        self.answer_words = self._words(self.answer_lyrics)
+
+        return {
+            "title": title,
+            "artist": artist,
+            "cut_time": self.cut_time,
+            "audio_start": self.audio_start,
+            "audio_duration": self.audio_duration,
+            "continuation": self.answer_lyrics,
+        }
+
+    def play_fragment(self, audio_file):
+        """Reproduce el fragmento preparado con la infraestructura común."""
+        if self.audio_start is None or self.audio_duration is None:
+            raise RuntimeError("Primero hay que preparar una ronda.")
+        self.audio_player.play_fragment(
+            audio_file,
+            self.audio_start,
+            self.audio_duration,
+        )
+
+    def evaluate_answer(self, answer):
+        """Da un punto por cada palabra inicial correcta consecutiva."""
+        if self.cut_time is None:
+            raise RuntimeError("No hay una ronda preparada.")
+
+        correct_words = 0
+        feedback = []
+        sequence_is_correct = True
+        submitted_words = self._display_words(answer)
+        normalized_words = self._words(answer)
+
+        for index, word in enumerate(submitted_words):
+            is_correct = (
+                sequence_is_correct
+                and index < len(self.answer_words)
+                and normalized_words[index] == self.answer_words[index]
+            )
+            feedback.append({"word": word, "correct": is_correct})
+            if is_correct:
+                correct_words += 1
+            else:
+                sequence_is_correct = False
+
+        return {
+            "points": correct_words,
+            "correct_words": correct_words,
+            "answer": answer,
+            "word_feedback": feedback,
+        }
+
+    @staticmethod
+    def _words(text):
+        words = []
+        for word in ContinueLyricsGame._display_words(text):
+            normalized = unicodedata.normalize("NFD", word.lower())
+            normalized = normalized.encode("ascii", "ignore").decode("ascii")
+            words.extend(re.findall(r"[a-z0-9]+", normalized))
+        return words
+
+    @staticmethod
+    def _display_words(text):
+        return re.findall(r"[^\W_]+", text, flags=re.UNICODE)

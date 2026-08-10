@@ -1,19 +1,14 @@
-import tempfile
-import pygame
-
-pygame.mixer.init()
-
 import socket
 
-import os
 import threading
 import time
 import random
-import unicodedata
-from flask import Flask, request
+from flask import Flask, request, render_template
 from flask_socketio import SocketIO, emit
-from yt_dlp import YoutubeDL
-import subprocess
+
+from audio import AudioPlayer
+from games.continue_lyrics import ContinueLyricsGame
+from games.guess_song import evaluar_respuesta, respuesta_correcta
 
 
 app = Flask(__name__)
@@ -24,22 +19,23 @@ puntuaciones = {}                # nombre → puntos
 respuestas = {}                  # nombre → respuesta
 respuesta_actual = {"titulo": "", "artista": "", "completa": ""}
 pedidores_30s = set()            # nombres que pidieron más tiempo
-fragmentos_temporales = []       # archivos a borrar al final
 partida_terminada = False
 temporizador_activo = False
 tiempo_restante = 0
 panel_ranking_texto = ""
 panel_ranking_data  = []   # [(nombre, pts), ...] ordenado, persiste tras reset()
 panel_reveal = None        # {correcta, respuestas: [(nombre, texto, pts_ronda), ...]} tras evaluar
-descarga_activa = False
-descarga_progreso = 0.0   # 0.0 – 1.0
-descarga_fase = ""        # "descargando" | "procesando" | ""
+audio_player = AudioPlayer()
+continue_lyrics_game = ContinueLyricsGame(audio_player=audio_player)
+game_mode = "guess_song"
+ronda_en_progreso = False
 
 # ---------- PARAMETROS ----------
 LISTA = 'Olaf.txt'    # Lista de canciones
 T_FRAGMENT = 5        # Duracion del fragmento
 T_RESP = 45           # Tiempo para responder
 ROUNDS = 10  # Número de canciones por ronda
+MAX_LYRIC_ATTEMPTS = 5
 
 # ---------- ESTADO ----------
 cancion_actual = 0
@@ -58,12 +54,6 @@ def obtener_ip_local():
         s.close()
     return ip
 
-def normalizar(texto):
-    texto = texto.lower()
-    texto = unicodedata.normalize("NFD", texto)
-    texto = texto.encode("ascii", "ignore").decode("utf-8")
-    return texto
-
 def elegir_cancion():
     with open(LISTA, encoding="utf-8") as f:
         canciones = [line.strip() for line in f if " - " in line]
@@ -72,76 +62,19 @@ def elegir_cancion():
     return titulo, artista
 
 def descargar_y_reproducir(titulo, artista):
-    global descarga_activa, descarga_progreso, descarga_fase
-    busqueda = f"{titulo} {artista} audio"
-    temp_dir = tempfile.mkdtemp()
-
-    descarga_activa = True
-    descarga_progreso = 0.0
-    descarga_fase = "descargando"
-
-    def _progress_hook(d):
-        global descarga_progreso
-        if d['status'] == 'downloading':
-            total = d.get('total_bytes') or d.get('total_bytes_estimate', 0)
-            if total > 0:
-                descarga_progreso = d['downloaded_bytes'] / total
-        elif d['status'] == 'finished':
-            descarga_progreso = 1.0
-
     try:
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'quiet': True,
-            'outtmpl': os.path.join(temp_dir, '%(id)s.%(ext)s'),
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '128',
-            }],
-            'progress_hooks': [_progress_hook],
-        }
-        with YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"ytsearch1:{busqueda}", download=True)
-            entry = info['entries'][0]
-            archivo = os.path.join(temp_dir, entry['id'] + '.mp3')
-            duracion = entry.get('duration', 180)
-
-        descarga_fase = "procesando"
-
+        archivo, duracion = audio_player.download_song(titulo, artista)
         inicio = random.randint(0, max(0, duracion - T_FRAGMENT - 5))
-        wav_temp = os.path.join(temp_dir, "frag.wav")
-
-        result = subprocess.run([
-            "ffmpeg", "-y", "-ss", str(inicio), "-i", archivo,
-            "-t", str(T_FRAGMENT), "-acodec", "pcm_s16le", "-ar", "44100", wav_temp
-        ], capture_output=True)
-
-        descarga_activa = False
-        descarga_fase = ""
-
-        if result.returncode != 0:
-            print("❌ ffmpeg error:", result.stderr.decode(errors="ignore"))
-            return False
-
-        pygame.mixer.music.load(wav_temp)
-        pygame.mixer.music.play()
-        time.sleep(T_FRAGMENT)
-        pygame.mixer.music.unload()
-
-        fragmentos_temporales.append(wav_temp)
-        fragmentos_temporales.append(archivo)
+        audio_player.play_fragment(archivo, inicio, T_FRAGMENT)
         return True
 
     except Exception as e:
-        print("❌ Error al reproducir:", e)
-        descarga_activa = False
-        descarga_fase = ""
+        print("Error al reproducir:", e)
         return False
 
 def emit_a_todos(event, data):
     sids = list(jugadores_conectados.keys())
-    print(f"📡 emit({event!r}) → {len(sids)} jugadores: {sids}")
+    print(f"emit({event!r}) -> {len(sids)} jugadores: {sids}")
     for sid in sids:
         socketio.emit(event, data, to=sid, namespace='/')
 
@@ -162,27 +95,34 @@ def evaluar_respuestas():
             continue
 
         respuesta = respuestas.get(nombre, "")
-        r_norm = normalizar(respuesta)
-        t_norm = normalizar(respuesta_actual["titulo"])
-        a_norm = normalizar(respuesta_actual["artista"])
-        puntos = 0
-        aciertos = []
-
-        if t_norm in r_norm:
-            puntos += 2
-            aciertos.append("🎵 título")
-        if a_norm in r_norm:
-            puntos += 1
-            aciertos.append("👤 artista")
-        if puntos == 3:
-            puntos = 4
+        if game_mode == "continue_lyrics":
+            evaluacion = continue_lyrics_game.evaluate_answer(respuesta)
+            puntos = evaluacion["points"]
+            resultado = evaluacion
+        else:
+            evaluacion = evaluar_respuesta(
+                respuesta,
+                respuesta_actual["titulo"],
+                respuesta_actual["artista"],
+            )
+            puntos = evaluacion["puntos"]
+            aciertos = evaluacion["aciertos"]
+            resultado = f"{'✅' if puntos else '❌'} {nombre}: +{puntos} puntos ({', '.join(aciertos) or 'ninguno'})\n"
+            resultado += f"La respuesta correcta era: {respuesta_actual['completa']}"
 
         puntuaciones[nombre] += puntos
-        resultado = f"{'✅' if puntos else '❌'} {nombre}: +{puntos} puntos ({', '.join(aciertos) or 'ninguno'})\n"
-        resultado += f"La respuesta correcta era: {respuesta_actual['completa']}"
         socketio.emit("resultado", resultado, to=sid)
         resumen.append(f"{nombre}: {puntuaciones[nombre]} pts")
-        revelacion.append((nombre, respuesta or "(sin respuesta)", puntos))
+        revelacion.append({
+            "nombre": nombre,
+            "texto": respuesta or "(sin respuesta)",
+            "puntos": puntos,
+            "feedback": (
+                evaluacion["word_feedback"]
+                if game_mode == "continue_lyrics"
+                else None
+            ),
+        })
 
     global panel_ranking_texto, panel_ranking_data, panel_reveal
     sorted_pts = sorted([(n, puntuaciones[n]) for n in puntuaciones if n != "host"],
@@ -192,36 +132,67 @@ def evaluar_respuestas():
     panel_ranking_data = sorted_pts
     # Ordenar revelación igual que el ranking
     orden = {n: i for i, (n, _) in enumerate(sorted_pts)}
-    revelacion.sort(key=lambda x: orden.get(x[0], 999))
+    revelacion.sort(key=lambda item: orden.get(item["nombre"], 999))
     panel_reveal = {
-        "correcta": respuesta_actual["completa"],
+        "correcta": (
+            "Resultados de la continuación"
+            if game_mode == "continue_lyrics"
+            else respuesta_actual["completa"]
+        ),
         "respuestas": revelacion,
     }
 
 # ---------- Temporizador ----------
 
-def iniciar_ronda():
-    global respuestas, temporizador_activo, panel_reveal
+def iniciar_ronda(intentos=0):
+    global respuestas, temporizador_activo, panel_reveal, ronda_en_progreso
     respuestas = {}
     temporizador_activo = False
     panel_reveal = None
+    ronda_en_progreso = True
 
     titulo, artista = elegir_cancion()
-    respuesta_actual["titulo"] = titulo
-    respuesta_actual["artista"] = artista
-    respuesta_actual["completa"] = f"{titulo} - {artista}"
-
     emit_a_todos("estado", "🎵 Preparando fragmento de audio...")
 
     def reproduccion_y_luego():
-        flag = descargar_y_reproducir(titulo, artista)
-        if not flag:
-            # 🔁 Reintentar con otra canción
-            iniciar_ronda()
-            return
+        if game_mode == "continue_lyrics":
+            try:
+                archivo, duracion = audio_player.download_song(titulo, artista)
+                round_data = continue_lyrics_game.prepare_round(
+                    titulo, artista, duracion
+                )
+                if round_data is None:
+                    raise ValueError("No hay letra sincronizada válida")
+
+                respuesta_actual["titulo"] = titulo
+                respuesta_actual["artista"] = artista
+                respuesta_actual["completa"] = round_data["continuation"]
+                emit_a_todos("nueva_ronda_letra", {})
+                continue_lyrics_game.play_fragment(archivo)
+            except Exception as error:
+                print("Error al preparar letras:", error)
+                if intentos + 1 < MAX_LYRIC_ATTEMPTS:
+                    iniciar_ronda(intentos + 1)
+                else:
+                    ronda_fallida("No se encontraron canciones con letra sincronizada.")
+                return
+        else:
+            respuesta_actual["titulo"] = titulo
+            respuesta_actual["artista"] = artista
+            respuesta_actual["completa"] = respuesta_correcta(titulo, artista)
+            if not descargar_y_reproducir(titulo, artista):
+                ronda_fallida("No se pudo preparar el audio de la canción.")
+                return
         iniciar_temporizador()
 
     threading.Thread(target=reproduccion_y_luego, daemon=True).start()
+
+
+def ronda_fallida(message):
+    global ronda_en_progreso, temporizador_activo
+    ronda_en_progreso = False
+    temporizador_activo = False
+    emit_a_todos("estado", f"⚠️ {message}")
 
 def iniciar_temporizador():
     global temporizador_activo, tiempo_restante, pedidores_30s
@@ -232,7 +203,7 @@ def iniciar_temporizador():
     emit_a_todos("estado", "🎵 ¡Responde ahora! Tienes " + str(T_RESP) + " segundos...")
 
     def cuenta_atras():
-        global temporizador_activo, tiempo_restante
+        global temporizador_activo, tiempo_restante, ronda_en_progreso
         while tiempo_restante > 0:
             emit_a_todos("temporizador", tiempo_restante)
             time.sleep(1)
@@ -240,6 +211,7 @@ def iniciar_temporizador():
         emit_a_todos("temporizador", 0)
         emit_a_todos("estado", "⏰ ¡Tiempo terminado!")
         temporizador_activo = False
+        ronda_en_progreso = False
         evaluar_respuestas()
 
     socketio.start_background_task(cuenta_atras)
@@ -256,10 +228,10 @@ def reset():
 
 def reset_all():
     global jugadores_conectados, puntuaciones, respuestas
-    global respuesta_actual, pedidores_30s, fragmentos_temporales
+    global respuesta_actual, pedidores_30s
     global partida_terminada
     global temporizador_activo, tiempo_restante
-    global cancion_actual, ronda_actual, panel_reveal
+    global cancion_actual, ronda_actual, panel_reveal, ronda_en_progreso
 
     respuestas = {}
     respuesta_actual = {"titulo": "", "artista": "", "completa": ""}
@@ -267,6 +239,7 @@ def reset_all():
     panel_reveal = None
 
     temporizador_activo = False
+    ronda_en_progreso = False
     tiempo_restante = 0
 
     partida_terminada = False
@@ -278,17 +251,9 @@ def reset_all():
         if n != "host":
             puntuaciones[n] = 0
 
-    # Clear temporary fragment files
-    for ruta in fragmentos_temporales:
-        try:
-            if os.path.exists(ruta):
-                os.remove(ruta)
-                print(f"🗑️ Eliminado: {ruta}")
-        except Exception as e:
-            print(f"❌ Error al borrar {ruta}:", e)
-    fragmentos_temporales.clear()
+    audio_player.cleanup()
 
-    print("🔄 Juego reseteado completamente.")
+    print("Juego reseteado completamente.")
 
 
 # ---------- Acciones del host ----------
@@ -300,52 +265,71 @@ def action_nueva_ronda():
         cancion_actual = 0
         ronda_actual += 1
         emit_a_todos("estado", f"🎯 ¡Ronda {ronda_actual - 1} terminada! Se reinician los puntos.")
-        print(f"🎯 Ronda {ronda_actual - 1} terminada, reiniciando puntuaciones...")
+        print(f"Ronda {ronda_actual - 1} terminada, reiniciando puntuaciones...")
         reset()
         return
-    print(f"▶️ Canción {cancion_actual}/{ROUNDS} de la ronda {ronda_actual}")
+    print(f"Canción {cancion_actual}/{ROUNDS} de la ronda {ronda_actual}")
     emit_a_todos("estado", f"🎵 Ronda {ronda_actual}, canción {cancion_actual}/{ROUNDS}")
     iniciar_ronda()
 
+
+def action_cambiar_modo(mode):
+    global game_mode
+    if mode not in {"guess_song", "continue_lyrics"}:
+        return False
+    if ronda_en_progreso:
+        print("No se puede cambiar de modo durante una ronda.")
+        return False
+
+    game_mode = mode
+    mode_name = "Adivina la canción" if mode == "guess_song" else "Continúa la letra"
+    print(f"Modo seleccionado: {mode_name}")
+    emit_a_todos("modo_juego", mode)
+    return True
+
 def action_terminar_partida():
-    global partida_terminada, cancion_actual, ronda_actual, panel_ranking_texto, panel_ranking_data, panel_reveal
+    global partida_terminada, cancion_actual, ronda_actual, panel_ranking_texto, panel_ranking_data, panel_reveal, ronda_en_progreso
     partida_terminada = True
+    ronda_en_progreso = False
     ranking = [(n, p) for n, p in sorted(puntuaciones.items(), key=lambda x: x[1], reverse=True) if n != "host"]
     texto = "\n🏆 Ranking final:\n" + "\n".join(f"{i+1}. {n}: {p} pts" for i, (n, p) in enumerate(ranking))
     panel_ranking_texto = texto
     panel_ranking_data  = ranking
     panel_reveal = None
-    print(texto)
+    print("Partida terminada.")
     for sid in list(jugadores_conectados.keys()):
         socketio.emit("estado", texto, to=sid)
     cancion_actual = 0
     ronda_actual = 1
     reset()
-    for ruta in fragmentos_temporales:
-        try:
-            if os.path.exists(ruta):
-                os.remove(ruta)
-                print(f"🗑️ Eliminado: {ruta}")
-        except Exception as e:
-            print(f"❌ Error al borrar {ruta}:", e)
-    fragmentos_temporales.clear()
+    audio_player.cleanup()
 
 # ---------- Flask / SocketIO ----------
-from flask import render_template
 
 @app.route("/")
 def index():
-    return render_template("host.html")
+    template = "continue_lyrics.html" if game_mode == "continue_lyrics" else "guess_song.html"
+    return render_template(template)
+
+
+@app.route("/guess-song")
+def guess_song_page():
+    return render_template("guess_song.html")
+
+
+@app.route("/continue-lyrics")
+def continue_lyrics_page():
+    return render_template("continue_lyrics.html")
 
 @socketio.on("connect")
-def conectar():
-    print(f"🔌 Conectado: {request.sid}")
+def conectar(auth=None):
+    print(f"Conectado: {request.sid}")
 
 @socketio.on("disconnect")
 def desconectar():
     nombre = jugadores_conectados.pop(request.sid, None)
     if nombre:
-        print(f"❌ Desconectado: {nombre}")
+        print(f"Desconectado: {nombre}")
 
 @socketio.on("registrar")
 def registrar(nombre):
@@ -354,7 +338,7 @@ def registrar(nombre):
         jugadores_conectados.pop(old_sid, None)
     jugadores_conectados[request.sid] = nombre
     puntuaciones.setdefault(nombre, 0)
-    print(f"🟢 Registrado: {nombre} (sid={request.sid})")
+    print(f"Registrado: {nombre} (sid={request.sid})")
     emit("registrado", f"Bienvenido, {nombre}!")
     emit("estado", "Esperando inicio de la ronda...", to=request.sid)
 
@@ -370,7 +354,7 @@ def recibir_respuesta(data):
     emit("resultado", f"✅ Respuesta registrada.", to=request.sid)
 
     if len(respuestas) == len([n for n in puntuaciones if n != "host"]):
-        print("📩 Todos han respondido. Finalizando ronda...")
+        print("Todos han respondido. Finalizando ronda...")
         global tiempo_restante
         tiempo_restante = 0  # Esto hará que el temporizador termine
 
@@ -393,11 +377,11 @@ def pedir_30s(nombre):
 
     if nombre in puntuaciones:
         pedidores_30s.add(nombre)
-        print(f"🕒 {nombre} ha solicitado +30s ({len(pedidores_30s)}/{len(puntuaciones)-1})")
+        print(f"{nombre} ha solicitado +30s ({len(pedidores_30s)}/{len(puntuaciones)-1})")
         emit_a_todos("estado", f"🕒 {nombre} ha solicitado +30s ({len(pedidores_30s)}/{len(puntuaciones)-1})")
 
         if len(pedidores_30s) == len(puntuaciones)-1:
-            print("🕒 TODOS han pedido +30s. Añadiendo tiempo.")
+            print("Todos han pedido +30s. Añadiendo tiempo.")
             socketio.start_background_task(anadir_30s_extra)
 
 
