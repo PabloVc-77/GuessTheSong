@@ -7,6 +7,8 @@ import unicodedata
 from audio import AudioPlayer
 from lyrics import get_lyrics, parse_lrc
 
+MAX_CONSECUTIVE_ERRORS = 2
+PERFECT_BONUS = 5
 
 class ContinueLyricsGame:
     """Prepara y evalúa rondas a partir de letras LRC sincronizadas."""
@@ -75,31 +77,126 @@ class ContinueLyricsGame:
         )
 
     def evaluate_answer(self, answer):
-        """Da un punto por cada palabra inicial correcta consecutiva."""
+        """Evalúa la continuación tolerando un número limitado de errores consecutivos."""
+
         if self.cut_time is None:
             raise RuntimeError("No hay una ronda preparada.")
 
-        correct_words = 0
-        feedback = []
-        sequence_is_correct = True
         submitted_words = self._display_words(answer)
         normalized_words = self._words(answer)
 
-        for index, word in enumerate(submitted_words):
-            is_correct = (
-                sequence_is_correct
-                and index < len(self.answer_words)
-                and normalized_words[index] == self.answer_words[index]
-            )
-            feedback.append({"word": word, "correct": is_correct})
-            if is_correct:
+        feedback = []
+        correct_words = 0
+        consecutive_errors = 0
+
+        answer_index = 0
+        scoring_active = True
+
+        for submitted_index, submitted_word in enumerate(normalized_words):
+
+            # ---------------------------------------------------------
+            # Una vez superado el límite de errores, seguimos generando
+            # feedback, pero ya no damos más puntos.
+            # ---------------------------------------------------------
+            if not scoring_active:
+                feedback.append({
+                    "word": submitted_words[submitted_index],
+                    "correct": False,
+                })
+                continue
+
+            # Si ya hemos llegado al final de la letra
+            if answer_index >= len(self.answer_words):
+                feedback.append({
+                    "word": submitted_words[submitted_index],
+                    "correct": False,
+                })
+                continue
+
+            correct_word = self.answer_words[answer_index]
+
+            # ---------------------------------------------------------
+            # 1. Coincidencia directa
+            # ---------------------------------------------------------
+            if submitted_word == correct_word:
+                feedback.append({
+                    "word": submitted_words[submitted_index],
+                    "correct": True,
+                })
+
                 correct_words += 1
-            else:
-                sequence_is_correct = False
+                consecutive_errors = 0
+                answer_index += 1
+                continue
+
+            # ---------------------------------------------------------
+            # 2. Buscar si el jugador se ha saltado alguna palabra
+            # ---------------------------------------------------------
+            found_at = None
+
+            for offset in range(1, MAX_CONSECUTIVE_ERRORS + 1):
+                candidate_index = answer_index + offset
+
+                if candidate_index >= len(self.answer_words):
+                    break
+
+                if submitted_word == self.answer_words[candidate_index]:
+                    found_at = candidate_index
+                    break
+
+            if found_at is not None:
+                skipped = found_at - answer_index
+                consecutive_errors += skipped
+
+                if consecutive_errors > MAX_CONSECUTIVE_ERRORS:
+                    feedback.append({
+                        "word": submitted_words[submitted_index],
+                        "correct": False,
+                    })
+                    scoring_active = False
+                    continue
+
+                # Las palabras omitidas cuentan como errores,
+                # pero no forman parte de la respuesta escrita.
+                feedback.append({
+                    "word": submitted_words[submitted_index],
+                    "correct": True,
+                })
+
+                correct_words += 1
+                consecutive_errors = 0
+                answer_index = found_at + 1
+                continue
+
+            # ---------------------------------------------------------
+            # 3. Palabra incorrecta
+            # ---------------------------------------------------------
+            feedback.append({
+                "word": submitted_words[submitted_index],
+                "correct": False,
+            })
+
+            consecutive_errors += 1
+
+            if consecutive_errors > MAX_CONSECUTIVE_ERRORS:
+                scoring_active = False
+
+        # -------------------------------------------------------------
+        # Bonus por respuesta perfecta
+        # -------------------------------------------------------------
+        perfect = (
+            len(normalized_words) == len(self.answer_words)
+            and correct_words == len(self.answer_words)
+            and consecutive_errors == 0
+        )
+
+        bonus = PERFECT_BONUS if perfect else 0
 
         return {
-            "points": correct_words,
+            "points": correct_words + bonus,
             "correct_words": correct_words,
+            "bonus": bonus,
+            "perfect": perfect,
             "answer": answer,
             "word_feedback": feedback,
         }
