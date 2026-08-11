@@ -103,7 +103,7 @@ function mostrarFeedback(words) {
 
     for (const item of words) {
         const word = document.createElement("span");
-        word.className = item.correct ? "palabra-correcta" : "palabra-incorrecta";
+        word.className = item.correct ? "palabra-correcta" : item.omitted ? "palabra-omitida" : "palabra-incorrecta";
         word.textContent = item.word;
         container.appendChild(word);
     }

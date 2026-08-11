@@ -234,6 +234,7 @@ def crear_panel_host():
     scores_box.pack(fill="both", expand=True, padx=20)
     scores_box.tag_config("palabra_correcta", foreground="#4ade80")
     scores_box.tag_config("palabra_incorrecta", foreground="#f87171")
+    scores_box.tag_config("palabra_omitida", foreground="#f59e0b")
 
     # ── BOTONES ──────────────────────────────────────────────────
     btn_frame = ctk.CTkFrame(root, fg_color="transparent")
@@ -315,11 +316,13 @@ def crear_panel_host():
 
                     scores_box.insert("end", "      ")
                     for palabra in feedback:
-                        tag = (
-                            "palabra_correcta"
-                            if palabra["correct"]
-                            else "palabra_incorrecta"
-                        )
+                        if palabra["correct"]:
+                            tag = "palabra_correcta"
+                        elif palabra["omitted"]:
+                            tag = "palabra_omitida"
+                        else:
+                            tag = "palabra_incorrecta"
+                       
                         scores_box.insert("end", f"{palabra['word']} ", tag)
                     scores_box.insert("end", "\n\n")
 
