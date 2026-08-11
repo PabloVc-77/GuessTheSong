@@ -19,6 +19,7 @@ puntuaciones = {}                # nombre → puntos
 respuestas = {}                  # nombre → respuesta
 respuesta_actual = {"titulo": "", "artista": "", "completa": ""}
 pedidores_30s = set()            # nombres que pidieron más tiempo
+plus_30s_usado = False              # +30s ya concedido en esta ronda
 partida_terminada = False
 temporizador_activo = False
 tiempo_restante = 0
@@ -79,7 +80,12 @@ def emit_a_todos(event, data):
         socketio.emit(event, data, to=sid, namespace='/')
 
 def anadir_30s_extra():
-    global tiempo_restante
+    global tiempo_restante, plus_30s_usado
+
+    if plus_30s_usado:
+        return
+
+    plus_30s_usado = True
     tiempo_restante += 30
     emit_a_todos("estado", "🕒 Todos solicitaron +30s. Tiempo añadido.")
 
@@ -204,10 +210,15 @@ def ronda_fallida(message):
     emit_a_todos("estado", f"⚠️ {message}")
 
 def iniciar_temporizador():
-    global temporizador_activo, tiempo_restante, pedidores_30s
+    global temporizador_activo, tiempo_restante, pedidores_30s, plus_30s_usado
     temporizador_activo = True
     tiempo_restante = T_RESP
     pedidores_30s.clear()
+    plus_30s_usado = False
+
+    # Indica a los clientes que empieza una nueva ronda y que
+    # el botón de +30s vuelve a estar disponible.
+    emit_a_todos("nueva_ronda_jugador", {})
 
     emit_a_todos("estado", "🎵 ¡Responde ahora! Tienes " + str(T_RESP) + " segundos...")
 
@@ -237,7 +248,7 @@ def reset():
 
 def reset_all():
     global jugadores_conectados, puntuaciones, respuestas
-    global respuesta_actual, pedidores_30s
+    global respuesta_actual, pedidores_30s, plus_30s_usado
     global partida_terminada
     global temporizador_activo, tiempo_restante
     global cancion_actual, ronda_actual, panel_reveal, ronda_en_progreso
@@ -245,6 +256,7 @@ def reset_all():
     respuestas = {}
     respuesta_actual = {"titulo": "", "artista": "", "completa": ""}
     pedidores_30s.clear()
+    plus_30s_usado = False
     panel_reveal = None
 
     temporizador_activo = False
@@ -338,6 +350,7 @@ def conectar(auth=None):
 def desconectar():
     nombre = jugadores_conectados.pop(request.sid, None)
     if nombre:
+        pedidores_30s.discard(nombre)
         print(f"Desconectado: {nombre}")
 
 @socketio.on("registrar")
@@ -381,17 +394,49 @@ def terminar_partida():
 
 @socketio.on("pedir_30s")
 def pedir_30s(nombre):
-    if not temporizador_activo:
+    if not temporizador_activo or plus_30s_usado:
         return
 
-    if nombre in puntuaciones:
-        pedidores_30s.add(nombre)
-        print(f"{nombre} ha solicitado +30s ({len(pedidores_30s)}/{len(puntuaciones)-1})")
-        emit_a_todos("estado", f"🕒 {nombre} ha solicitado +30s ({len(pedidores_30s)}/{len(puntuaciones)-1})")
+    jugador = jugadores_conectados.get(request.sid)
 
-        if len(pedidores_30s) == len(puntuaciones)-1:
-            print("Todos han pedido +30s. Añadiendo tiempo.")
-            socketio.start_background_task(anadir_30s_extra)
+    # El host no participa en la votación de +30s.
+    if not jugador or jugador == "host":
+        return
+
+    jugadores = {
+        nombre_jugador
+        for nombre_jugador in jugadores_conectados.values()
+        if nombre_jugador != "host"
+    }
+
+    if not jugadores:
+        return
+
+    # Un jugador solo puede solicitar +30s una vez por ronda.
+    if jugador in pedidores_30s:
+        return
+
+    pedidores_30s.add(jugador)
+    solicitados = len(pedidores_30s)
+    total_jugadores = len(jugadores)
+
+    print(
+        f"{jugador} ha solicitado +30s "
+        f"({solicitados}/{total_jugadores})"
+    )
+
+    emit_a_todos(
+        "estado",
+        f"🕒 {jugador} ha solicitado +30s "
+        f"({solicitados}/{total_jugadores})"
+    )
+
+    # Confirmación explícita al jugador que hizo la petición.
+    socketio.emit("plus_30s_solicitado", to=request.sid)
+
+    if solicitados >= total_jugadores:
+        print("Todos han pedido +30s. Añadiendo tiempo.")
+        socketio.start_background_task(anadir_30s_extra)
 
 
 # ---------- Ejecutar ----------

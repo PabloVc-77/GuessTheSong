@@ -5,6 +5,33 @@ let socket = io({
 let jugador = "";
 
 
+function solicitarTiempo() {
+    const boton = document.getElementById("solicitar-30s");
+
+    if (boton.disabled) return;
+
+    socket.emit("pedir_30s", jugador);
+}
+
+
+function marcar30sSolicitado() {
+    const boton = document.getElementById("solicitar-30s");
+
+    boton.disabled = true;
+    boton.innerText = "🕒 +30s solicitado";
+    document.getElementById("resultado").innerText =
+        "🕒 Has solicitado +30 segundos.";
+}
+
+
+function reiniciar30s() {
+    const boton = document.getElementById("solicitar-30s");
+
+    boton.disabled = false;
+    boton.innerText = "🕒 Solicitar +30s";
+}
+
+
 socket.on("connect", () => {
     if (jugador) {
         socket.emit("registrar", jugador);
@@ -108,3 +135,12 @@ function mostrarFeedback(words) {
         container.appendChild(word);
     }
 }
+
+socket.on("plus_30s_solicitado", () => {
+    marcar30sSolicitado();
+});
+
+
+socket.on("nueva_ronda_jugador", () => {
+    reiniciar30s();
+});

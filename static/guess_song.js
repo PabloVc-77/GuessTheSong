@@ -53,8 +53,27 @@ function enviarRespuesta() {
 
 // +30s
 function solicitarTiempo() {
+  const boton = document.getElementById("solicitar-30s");
+
+  if (boton.disabled) return;
+
   socket.emit("pedir_30s", jugador);
-  document.getElementById("resultado").innerText = "🕒 Has solicitado +30 segundos.";
+}
+
+function marcar30sSolicitado() {
+  const boton = document.getElementById("solicitar-30s");
+
+  boton.disabled = true;
+  boton.innerText = "🕒 +30s solicitado";
+  document.getElementById("resultado").innerText =
+    "🕒 Has solicitado +30 segundos.";
+}
+
+function reiniciar30s() {
+  const boton = document.getElementById("solicitar-30s");
+
+  boton.disabled = false;
+  boton.innerText = "🕒 Solicitar +30s";
 }
 
 // Eventos del servidor
@@ -67,4 +86,14 @@ socket.on("registrado", msg => {
 socket.on("estado",      msg     => document.getElementById("estado").innerText = msg);
 socket.on("resultado",   msg     => document.getElementById("resultado").innerText = msg);
 socket.on("temporizador", seg    => document.getElementById("temporizador").innerText = seg);
-socket.on("mostrar_popup_ronda", msg => mostrarModal(msg));
+socket.on("mostrar_popup_ronda", msg => {
+  mostrarModal(msg);
+});
+
+socket.on("nueva_ronda_jugador", () => {
+  reiniciar30s();
+});
+
+socket.on("plus_30s_solicitado", () => {
+  marcar30sSolicitado();
+});
