@@ -360,7 +360,7 @@ def recibir_respuesta(data):
     nombre = data.get("nombre", "")
     texto = data.get("respuesta", "")
     respuestas[nombre] = texto
-    emit("resultado", f"✅ Respuesta registrada.", to=request.sid)
+    emit("resultado", "✅ Respuesta registrada.", to=request.sid)
 
     if len(respuestas) == len([n for n in puntuaciones if n != "host"]):
         print("Todos han respondido. Finalizando ronda...")
