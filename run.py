@@ -32,7 +32,7 @@ game_mode = "guess_song"
 ronda_en_progreso = False
 
 # ---------- PARAMETROS ----------
-LISTA = 'Olaf.txt'    # Lista de canciones
+LISTA = 'prueba.txt'    # Lista de canciones
 T_FRAGMENT = 5        # Duracion del fragmento
 T_RESP = 45           # Tiempo para responder
 ROUNDS = 10  # Número de canciones por ronda
@@ -65,7 +65,10 @@ def elegir_cancion():
 def descargar_y_reproducir(titulo, artista):
     try:
         archivo, duracion = audio_player.download_song(titulo, artista)
-        inicio = random.randint(0, max(0, duracion - T_FRAGMENT - 5))
+        # ffprobe devuelve la duración como float cuando la canción
+        # procede de la caché. randint necesita límites enteros.
+        max_inicio = max(0, int(duracion - T_FRAGMENT - 5))
+        inicio = random.randint(0, max_inicio)
         audio_player.play_fragment(archivo, inicio, T_FRAGMENT)
         return True
 
@@ -215,10 +218,6 @@ def iniciar_temporizador():
     tiempo_restante = T_RESP
     pedidores_30s.clear()
     plus_30s_usado = False
-
-    # Indica a los clientes que empieza una nueva ronda y que
-    # el botón de +30s vuelve a estar disponible.
-    emit_a_todos("nueva_ronda_jugador", {})
 
     emit_a_todos("estado", "🎵 ¡Responde ahora! Tienes " + str(T_RESP) + " segundos...")
 
