@@ -44,30 +44,185 @@ def crear_panel_host():
                  wraplength=160).pack(padx=12, pady=(0, 14))
 
     # — Columna derecha: ronda + timer + descarga —
+        # — Columna derecha: ronda + información en 2 columnas —
     right = ctk.CTkFrame(top, fg_color=SURFACE, corner_radius=12)
     right.grid(row=0, column=1, sticky="nsew")
 
-    ctk.CTkLabel(right, text="RONDA", text_color=MUTED,
-                 font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=18, pady=(16, 2))
+    # Dos columnas con el mismo ancho
+    right.columnconfigure(0, weight=1)
+    right.columnconfigure(1, weight=1)
+
+    # ── RONDA ──────────────────────────────────────────────────
+    ctk.CTkLabel(
+        right,
+        text="RONDA",
+        text_color=MUTED,
+        font=ctk.CTkFont(size=14, weight="bold")
+    ).grid(
+        row=0,
+        column=0,
+        columnspan=2,
+        sticky="w",
+        padx=18,
+        pady=(16, 2)
+    )
+
     round_var = tk.StringVar()
-    ctk.CTkLabel(right, textvariable=round_var, text_color=TEXT,
-                 font=ctk.CTkFont(size=22, weight="bold")).pack(anchor="w", padx=18)
+    ctk.CTkLabel(
+        right,
+        textvariable=round_var,
+        text_color=TEXT,
+        font=ctk.CTkFont(size=22, weight="bold")
+    ).grid(
+        row=1,
+        column=0,
+        columnspan=2,
+        sticky="w",
+        padx=18
+    )
 
-    ctk.CTkLabel(right, text="TIEMPO RESTANTE", text_color=MUTED,
-                 font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=18, pady=(14, 2))
+    # ── TIEMPO RESTANTE ────────────────────────────────────────
+    ctk.CTkLabel(
+        right,
+        text="TIEMPO RESTANTE",
+        text_color=MUTED,
+        font=ctk.CTkFont(size=14, weight="bold")
+    ).grid(
+        row=2,
+        column=0,
+        sticky="w",
+        padx=18,
+        pady=(14, 2)
+    )
+
+    # ── ÚLTIMA FRASE ───────────────────────────────────────────
+    ctk.CTkLabel(
+        right,
+        text="ÚLTIMA FRASE",
+        text_color=MUTED,
+        font=ctk.CTkFont(size=14, weight="bold")
+    ).grid(
+        row=2,
+        column=1,
+        sticky="w",
+        padx=18,
+        pady=(14, 2)
+    )
+
     timer_var = tk.StringVar(value="--")
-    ctk.CTkLabel(right, textvariable=timer_var, text_color=WARN,
-                 font=ctk.CTkFont(size=48, weight="bold")).pack(anchor="w", padx=18)
+    ctk.CTkLabel(
+        right,
+        textvariable=timer_var,
+        text_color=WARN,
+        font=ctk.CTkFont(size=48, weight="bold")
+    ).grid(
+        row=3,
+        column=0,
+        sticky="w",
+        padx=18
+    )
 
-    ctk.CTkLabel(right, text="DESCARGA", text_color=MUTED,
-                 font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=18, pady=(14, 2))
+    last_lyric_var = tk.StringVar(value="—")
+    ctk.CTkLabel(
+        right,
+        textvariable=last_lyric_var,
+        text_color=TEXT,
+        font=ctk.CTkFont(size=18, weight="bold"),
+        wraplength=350,
+        justify="left"
+    ).grid(
+        row=3,
+        column=1,
+        sticky="nw",
+        padx=18
+    )
+
+    # ── DESCARGA ────────────────────────────────────────────────
+    ctk.CTkLabel(
+        right,
+        text="DESCARGA",
+        text_color=MUTED,
+        font=ctk.CTkFont(size=14, weight="bold")
+    ).grid(
+        row=4,
+        column=0,
+        sticky="w",
+        padx=18,
+        pady=(14, 2)
+    )
+
     descarga_label_var = tk.StringVar(value="—")
-    ctk.CTkLabel(right, textvariable=descarga_label_var, text_color=TEXT,
-                 font=ctk.CTkFont(size=16)).pack(anchor="w", padx=18)
-    progressbar = ctk.CTkProgressBar(right, progress_color=ACCENT,
-                                     fg_color="#2a2a2a", height=8, corner_radius=4)
+    ctk.CTkLabel(
+        right,
+        textvariable=descarga_label_var,
+        text_color=TEXT,
+        font=ctk.CTkFont(size=16)
+    ).grid(
+        row=5,
+        column=0,
+        sticky="w",
+        padx=18
+    )
+
+    progressbar = ctk.CTkProgressBar(
+        right,
+        progress_color=ACCENT,
+        fg_color="#2a2a2a",
+        height=8,
+        corner_radius=4
+    )
     progressbar.set(0)
-    progressbar.pack(fill="x", padx=18, pady=(4, 18))
+    progressbar.grid(
+        row=6,
+        column=0,
+        sticky="ew",
+        padx=18,
+        pady=(4, 18)
+    )
+
+    # ── MODO DE JUEGO ──────────────────────────────────────────
+    ctk.CTkLabel(
+        right,
+        text="MODO DE JUEGO",
+        text_color=MUTED,
+        font=ctk.CTkFont(size=14, weight="bold")
+    ).grid(
+        row=4,
+        column=1,
+        sticky="w",
+        padx=18,
+        pady=(14, 2)
+    )
+
+    mode_labels = {
+        "🎵 Adivina la canción": "guess_song",
+        "📝 Continúa la letra": "continue_lyrics",
+    }
+
+    selected_mode = tk.StringVar(value="🎵 Adivina la canción")
+
+    def cambiar_modo(label):
+        if not run.action_cambiar_modo(mode_labels[label]):
+            selected_mode.set(
+                "🎵 Adivina la canción"
+                if run.game_mode == "guess_song"
+                else "📝 Continúa la letra"
+            )
+
+    ctk.CTkOptionMenu(
+        right,
+        values=list(mode_labels),
+        variable=selected_mode,
+        command=cambiar_modo,
+        fg_color="#2a2a2a",
+        button_color=ACCENT,
+        button_hover_color="#168a3f"
+    ).grid(
+        row=5,
+        column=1,
+        sticky="ew",
+        padx=18
+    )
 
     # ── JUGADORES ────────────────────────────────────────────────
     ctk.CTkLabel(root, text="JUGADORES", text_color=MUTED,
@@ -77,6 +232,9 @@ def crear_panel_host():
                                 font=ctk.CTkFont(family="Segoe UI", size=26, weight="bold"),
                                 corner_radius=12)
     scores_box.pack(fill="both", expand=True, padx=20)
+    scores_box.tag_config("palabra_correcta", foreground="#4ade80")
+    scores_box.tag_config("palabra_incorrecta", foreground="#f87171")
+    scores_box.tag_config("palabra_omitida", foreground="#f59e0b")
 
     # ── BOTONES ──────────────────────────────────────────────────
     btn_frame = ctk.CTkFrame(root, fg_color="transparent")
@@ -99,12 +257,24 @@ def crear_panel_host():
             round_var.set(f"Canción {run.cancion_actual}/{run.ROUNDS} · Ronda {run.ronda_actual}")
             timer_var.set(str(run.tiempo_restante) if run.temporizador_activo else "--")
 
+            # Última frase reproducida en el modo "Continúa la letra"
+            if run.game_mode == "continue_lyrics":
+                last_lyric_var.set(
+                    getattr(
+                        run.continue_lyrics_game,
+                        "last_played_line",
+                        ""
+                    ) or "—"
+                )
+            else:
+                last_lyric_var.set("—")
+
             # Barra de descarga
-            if run.descarga_activa:
-                if run.descarga_fase == "descargando":
-                    descarga_label_var.set(f"⬇  Descargando... {int(run.descarga_progreso * 100)}%")
-                    progressbar.set(run.descarga_progreso)
-                elif run.descarga_fase == "procesando":
+            if run.audio_player.download_active:
+                if run.audio_player.download_phase == "downloading":
+                    descarga_label_var.set(f"⬇  Descargando... {int(run.audio_player.download_progress * 100)}%")
+                    progressbar.set(run.audio_player.download_progress)
+                elif run.audio_player.download_phase == "processing":
                     descarga_label_var.set("⚙  Procesando audio...")
                     progressbar.set(1.0)
             else:
@@ -128,16 +298,36 @@ def crear_panel_host():
                     lines.append(f"  {mark}  {nombre}  —  {pts} pts")
 
             elif reveal:
-                lines.append(f"  Correcta: {reveal['correcta']}")
-                lines.append("")
+                scores_box.delete("1.0", "end")
+                scores_box.insert("end", f"  {reveal['correcta']}\n\n")
                 pts_totales = dict(run.panel_ranking_data)
-                for i, (nombre, texto, pts_ronda) in enumerate(reveal["respuestas"]):
+                for i, respuesta in enumerate(reveal["respuestas"]):
+                    nombre = respuesta["nombre"]
                     total = pts_totales.get(nombre, 0)
-                    signo = f"+{pts_ronda}" if pts_ronda else "+0"
-                    lines.append(f"  {i+1}.  {nombre}  —  {total} pts  ({signo})")
-                    lines.append(f"      →  {texto}")
-                    lines.append("")
+                    puntos_ronda = respuesta["puntos"]
+                    signo = f"+{puntos_ronda}" if puntos_ronda else "+0"
+                    scores_box.insert(
+                        "end", f"  {i+1}. {nombre} - {total} pts ({signo})\n"
+                    )
+                    feedback = respuesta["feedback"]
+                    if feedback is None:
+                        scores_box.insert("end", f"      {respuesta['texto']}\n\n")
+                        continue
 
+                    scores_box.insert("end", "      ")
+                    for palabra in feedback:
+                        if palabra["correct"]:
+                            tag = "palabra_correcta"
+                        elif palabra["omitted"]:
+                            tag = "palabra_omitida"
+                        else:
+                            tag = "palabra_incorrecta"
+                       
+                        scores_box.insert("end", f"{palabra['word']} ", tag)
+                    scores_box.insert("end", "\n\n")
+
+                root.after(500, actualizar)
+                return
             elif run.panel_ranking_data:
                 for i, (nombre, pts) in enumerate(run.panel_ranking_data):
                     lines.append(f"  {i+1}.  {nombre}  —  {pts} pts")

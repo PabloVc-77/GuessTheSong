@@ -13,6 +13,9 @@ __pycache__/
 *.mp3
 *.wav
 
+# Letras descargadas (caché regenerable)
+cache/
+
 # Carpeta static antigua (los archivos viven en static/ ahora)
 templates/static/
 

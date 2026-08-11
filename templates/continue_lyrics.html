@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0">
+
+    <title>🎵 Continúa la canción</title>
+
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', filename='style.css') }}"
+    >
+</head>
+
+<body>
+
+    <h2>📝 Continúa la canción</h2>
+
+    <div id="registro">
+        <p>Introduce tu nombre:</p>
+
+        <input
+            type="text"
+            id="nombre"
+        >
+
+        <button onclick="registrarse()">
+            Entrar
+        </button>
+    </div>
+
+    <div id="juego" style="display:none;">
+
+        <h3 id="bienvenida"></h3>
+
+        <p id="estado">
+            Esperando que empiece la ronda...
+        </p>
+
+        <p>
+            <b>Tiempo restante:</b>
+            <span id="temporizador">--</span>
+        </p>
+
+        <div id="panel_jugador">
+
+            <textarea
+                id="respuesta"
+                placeholder="Escribe tanto como puedas..."
+            ></textarea>
+
+            <button onclick="enviarRespuesta()">
+                Enviar
+            </button>
+
+            <p id="resultado"></p>
+            <div id="feedback-palabras" aria-live="polite"></div>
+
+        </div>
+
+    </div>
+
+    <script src="{{ url_for(
+        'static',
+        filename='continue_lyrics.js'
+    ) }}"></script>
+
+</body>
+</html>
