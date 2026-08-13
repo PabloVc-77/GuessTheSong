@@ -58,7 +58,8 @@ textarea {
 
 .palabra-correcta,
 .palabra-incorrecta,
-.palabra-omitida {
+.palabra-omitida,
+.palabra-typo {
     padding: 3px 7px;
     border-radius: 5px;
     font-weight: 600;
@@ -67,6 +68,7 @@ textarea {
 .palabra-correcta { background: #1f7a3f; color: #fff; }
 .palabra-incorrecta { background: #9d3030; color: #fff; }
 .palabra-omitida { background: #facc15; color: #000;}
+.palabra-typo { background: #d97706; color: #fff; }
 
 button {
     background-color: #1e1e1e;

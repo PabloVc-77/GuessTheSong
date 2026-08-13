@@ -235,6 +235,7 @@ def crear_panel_host():
     scores_box.tag_config("palabra_correcta", foreground="#4ade80")
     scores_box.tag_config("palabra_incorrecta", foreground="#f87171")
     scores_box.tag_config("palabra_omitida", foreground="#f59e0b")
+    scores_box.tag_config("palabra_typo", foreground="#d97706")
 
     # ── BOTONES ──────────────────────────────────────────────────
     btn_frame = ctk.CTkFrame(root, fg_color="transparent")
@@ -320,6 +321,8 @@ def crear_panel_host():
                             tag = "palabra_correcta"
                         elif palabra["omitted"]:
                             tag = "palabra_omitida"
+                        elif palabra["typo"]:
+                            tag = "palabra_typo"
                         else:
                             tag = "palabra_incorrecta"
                        

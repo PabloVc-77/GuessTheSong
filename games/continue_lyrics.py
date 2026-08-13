@@ -128,6 +128,7 @@ class ContinueLyricsGame:
                     "word": submitted_words[submitted_index],
                     "correct": True,
                     "omitted": False,
+                    "typo": False,
                 })
 
                 correct_words += 1
@@ -185,6 +186,7 @@ class ContinueLyricsGame:
                     "word": submitted_words[submitted_index],
                     "correct": False,
                     "omitted": False,
+                    "typo": False,
                 })
 
                 consecutive_errors += 1
@@ -240,6 +242,7 @@ class ContinueLyricsGame:
                     "word": self.answer_display_words[answer_index],
                     "correct": False,
                     "omitted": True,
+                    "typo": False,
                 })
 
                 consecutive_errors += 1
@@ -265,12 +268,23 @@ class ContinueLyricsGame:
             #    palabra de la letra quedaría pendiente y un caso
             #    posterior podría marcarla también como omitida,
             #    contando el mismo fallo dos veces.
+            #
+            #    Para que el jugador vea la corrección, mostramos la
+            #    palabra correcta (amarillo) seguida de lo que escribió
+            #    (naranja): "made make" en vez de solo "make".
             # =========================================================
 
+            feedback.append({
+                "word": self.answer_display_words[answer_index],
+                "correct": False,
+                "omitted": True,
+                "typo": False,
+            })
             feedback.append({
                 "word": submitted_words[submitted_index],
                 "correct": False,
                 "omitted": False,
+                "typo": True,
             })
 
             consecutive_errors += 1
@@ -302,6 +316,7 @@ class ContinueLyricsGame:
                     "word": submitted_words[submitted_index],
                     "correct": False,
                     "omitted": False,
+                    "typo": False,
                 })
 
                 submitted_index += 1
