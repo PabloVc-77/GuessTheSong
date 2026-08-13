@@ -1,5 +1,6 @@
 let socket = io({ transports: ['polling'] });
 let jugador = "";
+let respuestaEnviada = false;
 
 // Re-registrar automáticamente si el socket reconecta
 socket.on("connect", () => {
@@ -47,8 +48,21 @@ function registrarse() {
 function enviarRespuesta() {
   const texto = document.getElementById("respuesta").value.trim();
   if (!texto) return alert("Escribe una respuesta");
+  enviarRespuestaAlServidor(texto, false);
+}
+
+// Envía la respuesta al servidor una única vez por ronda.
+// automatica=true cuando se envía porque se acabó el tiempo.
+function enviarRespuestaAlServidor(texto, automatica) {
+  if (respuestaEnviada) return;
+  respuestaEnviada = true;
+
   socket.emit("respuesta", { nombre: jugador, respuesta: texto });
-  document.getElementById("resultado").innerText = "Respuesta enviada.";
+
+  document.getElementById("resultado").innerText = automatica
+    ? "⏰ Tiempo agotado. Se envió tu respuesta automáticamente."
+    : "Respuesta enviada.";
+  document.getElementById("respuesta").disabled = true;
 }
 
 // +30s
@@ -90,7 +104,16 @@ socket.on("mostrar_popup_ronda", msg => {
   mostrarModal(msg);
 });
 
+socket.on("tiempo_agotado", () => {
+  const texto = document.getElementById("respuesta").value.trim();
+  enviarRespuestaAlServidor(texto, true);
+});
+
 socket.on("nueva_ronda_jugador", () => {
+  respuestaEnviada = false;
+  document.getElementById("respuesta").value = "";
+  document.getElementById("respuesta").disabled = false;
+  document.getElementById("resultado").innerText = "";
   reiniciar30s();
 });
 

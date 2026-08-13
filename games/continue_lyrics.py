@@ -6,7 +6,6 @@ import unicodedata
 
 from audio import AudioPlayer
 from lyrics import get_lyrics, parse_lrc
-from difflib import SequenceMatcher
 
 MAX_CONSECUTIVE_ERRORS = 2
 PERFECT_BONUS = 5
@@ -83,12 +82,17 @@ class ContinueLyricsGame:
         )
 
     def evaluate_answer(self, answer):
-        """Evalúa una respuesta permitiendo hasta dos errores consecutivos.
+        """Evalúa la respuesta recorriendo la letra de izquierda a derecha.
 
-        Al alcanzar el tercer error consecutivo, la evaluación termina:
-        el tercer error se muestra con su tipo correspondiente y todas las
-        palabras escritas posteriormente por el jugador se muestran en rojo,
-        sin volver a comprobar si coinciden con la letra.
+        Reglas:
+        - Coincidencia exacta -> verde y +1 punto.
+        - Palabra escrita de más -> rojo.
+        - Palabra de la letra omitida -> amarillo.
+        - Al tercer error consecutivo se termina la evaluación.
+        - Todo lo escrito posteriormente se muestra en rojo.
+        - Las palabras de la letra que quedan después de terminar la
+        respuesta del jugador no se consideran omitidas.
+        - Una respuesta completamente correcta recibe el bonus de +5.
         """
 
         if self.cut_time is None:
@@ -97,248 +101,230 @@ class ContinueLyricsGame:
         submitted_words = self._display_words(answer)
         normalized_words = self._words(answer)
 
-        matcher = SequenceMatcher(
-            None,
-            self.answer_words,
-            normalized_words,
-            autojunk=False,
-        )
-
-        # ---------------------------------------------------------
-        # Validar que la respuesta realmente está alineada con
-        # el comienzo de la letra.
-        # ---------------------------------------------------------
-
-        if len(normalized_words) == 1:
-            valid_alignment = (
-                normalized_words[0] == self.answer_words[0]
-            )
-
-        else:
-            matching_blocks = matcher.get_matching_blocks()
-
-            valid_alignment = False
-
-            for answer_start, submitted_start, size in matching_blocks:
-                if size < MIN_MATCHING_ANCHOR:
-                    continue
-
-                if submitted_start < MAX_CONSECUTIVE_ERRORS:
-                    valid_alignment = True
-                    break
-
-        # Si no existe una alineación válida, toda la respuesta
-        # se considera incorrecta.
-        if not valid_alignment:
-            return {
-                "points": 0,
-                "correct_words": 0,
-                "bonus": 0,
-                "perfect": False,
-                "answer": answer,
-                "word_feedback": [
-                    {
-                        "word": word,
-                        "correct": False,
-                        "omitted": False,
-                    }
-                    for word in submitted_words
-                ],
-            }
-
         feedback = []
         correct_words = 0
+
+        answer_index = 0
+        submitted_index = 0
+
         consecutive_errors = 0
         evaluation_finished = False
 
-        # Procesamos los bloques de SequenceMatcher, pero una vez que
-        # llegamos al tercer error consecutivo la evaluación queda
-        # definitivamente terminada.
-        opcodes = matcher.get_opcodes()
-        finished_submitted_index = 0
+        ERROR_LIMIT = MAX_CONSECUTIVE_ERRORS + 1
 
-        for _, (
-            tag,
-            answer_start,
-            answer_end,
-            submitted_start,
-            submitted_end,
-        ) in enumerate(opcodes):
+        while (
+            answer_index < len(self.answer_words)
+            and submitted_index < len(normalized_words)
+        ):
 
-            finished_submitted_index = max(finished_submitted_index, submitted_end)
+            expected = self.answer_words[answer_index]
+            submitted = normalized_words[submitted_index]
 
-            # ---------------------------------------------------------
-            # Una vez terminada la tarea:
-            # lo que el jugador haya escrito posteriormente es rojo.
-            # No se comprueba si coincide con la letra.
-            # ---------------------------------------------------------
-            if evaluation_finished:
-                for i in range(submitted_start, submitted_end):
-                    feedback.append({
-                        "word": submitted_words[i],
-                        "correct": False,
-                        "omitted": False,
-                    })
-                continue
+            # =========================================================
+            # 1. PALABRA CORRECTA
+            # =========================================================
+            if submitted == expected:
+                feedback.append({
+                    "word": submitted_words[submitted_index],
+                    "correct": True,
+                    "omitted": False,
+                })
 
-            # ---------------------------------------------------------
-            # Palabras que coinciden exactamente
-            # ---------------------------------------------------------
-            if tag == "equal":
-                for i in range(submitted_start, submitted_end):
-                    feedback.append({
-                        "word": submitted_words[i],
-                        "correct": True,
-                        "omitted": False,
-                    })
-                    correct_words += 1
+                correct_words += 1
 
-                # Una coincidencia correcta rompe la cadena de errores.
+                # Una palabra correcta rompe la cadena de errores.
                 consecutive_errors = 0
 
-            # ---------------------------------------------------------
-            # Palabras que aparecen en la letra pero el jugador no
-            # escribió -> AMARILLO
-            # ---------------------------------------------------------
-            elif tag == "delete":
-                # Una eliminación al final de la respuesta no es una
-                # omisión del jugador: simplemente ha terminado su respuesta.
-                # SequenceMatcher la genera porque answer_words contiene
-                # toda la continuación de la letra.
-                #
-                # Ejemplo:
-                #   letra:     "we are young tonight"
-                #   respuesta: "we are young"
-                #
-                # "tonight" no debe mostrarse como omitido ni impedir
-                # el bonus de respuesta perfecta.
+                answer_index += 1
+                submitted_index += 1
 
-                for i in range(answer_start, answer_end):
-                    feedback.append({
-                        "word": self.answer_display_words[i],
-                        "correct": False,
-                        "omitted": True,
-                    })
+                continue
 
-                    consecutive_errors += 1
-
-                    # La tercera omisión es válida y se muestra amarilla,
-                    # pero a partir de aquí la tarea queda terminada.
-                    if consecutive_errors >= MAX_CONSECUTIVE_ERRORS + 1:
-                        evaluation_finished = True
-                        for j in range(i + 1, submitted_end):
-                            feedback.append({
-                                "word": submitted_words[j],
-                                "correct": False,
-                                "omitted": False,
-                            })
-                        break
-
-                if evaluation_finished:
-                    continue
-
-            # ---------------------------------------------------------
-            # Palabras que el jugador escribió pero no aparecen en
-            # este punto de la letra -> ROJO
-            # ---------------------------------------------------------
-            elif tag == "insert":
-                for i in range(submitted_start, submitted_end):
-                    feedback.append({
-                        "word": submitted_words[i],
-                        "correct": False,
-                        "omitted": False,
-                    })
-
-                    consecutive_errors += 1
-
-                    if consecutive_errors >= MAX_CONSECUTIVE_ERRORS + 1:
-                        evaluation_finished = True
-                        for j in range(i + 1, submitted_end):
-                            feedback.append({
-                                "word": submitted_words[j],
-                                "correct": False,
-                                "omitted": False,
-                            })
-                        break
-
-                if evaluation_finished:
-                    continue
-
-            # ---------------------------------------------------------
-            # Sustitución:
+            # =========================================================
+            # 2. BUSCAR SI LA PALABRA ESPERADA APARECE MUY PRONTO
+            #    EN LA RESPUESTA.
             #
-            #   delete -> palabras omitidas (AMARILLO)
-            #   insert -> palabras escritas incorrectamente (ROJO)
-            # ---------------------------------------------------------
-            elif tag == "replace":
-                # Procesamos primero las palabras omitidas.
-                auxiliary_consecutive_errors = consecutive_errors
-                for i in range(answer_start, answer_end):
-                    feedback.append({
-                        "word": self.answer_display_words[i],
-                        "correct": False,
-                        "omitted": True,
-                    })
+            #    Ejemplo:
+            #
+            #    LETRA:
+            #        ... gonna crack
+            #
+            #    RESPUESTA:
+            #        ... I m not gonna crack
+            #
+            #    "gonna" aparece 3 posiciones más adelante.
+            #
+            #    Por tanto:
+            #        I   -> rojo
+            #        m   -> rojo
+            #        not -> rojo
+            #
+            #    y al tercer error terminamos.
+            #
+            #    Esto evita interpretar "gonna crack" como omitido.
+            # =========================================================
 
-                    consecutive_errors += 1
+            expected_found_ahead = None
 
-                    if consecutive_errors >= MAX_CONSECUTIVE_ERRORS + 1:
-                        evaluation_finished = True
-                        # Indicar que las palabras escritas incorrectamente también son rojas.
-                        for i in range(submitted_start, submitted_end):
-                            feedback.append({
-                                "word": submitted_words[i],
-                                "correct": False,
-                                "omitted": False,
-                            })
-                        break
+            for distance in range(
+                1,
+                ERROR_LIMIT + 1,
+            ):
+                index = submitted_index + distance
 
-                if evaluation_finished:
-                    continue
+                if index >= len(normalized_words):
+                    break
 
-                # Después procesamos las palabras escritas incorrectamente.
-                for i in range(submitted_start, submitted_end):
-                    feedback.append({
-                        "word": submitted_words[i],
-                        "correct": False,
-                        "omitted": False,
-                    })
+                if normalized_words[index] == expected:
+                    expected_found_ahead = distance
+                    break
 
-                    auxiliary_consecutive_errors += 1
+            if expected_found_ahead is not None:
+                # La palabra actual es incorrecta.
+                feedback.append({
+                    "word": submitted_words[submitted_index],
+                    "correct": False,
+                    "omitted": False,
+                })
 
-                    if auxiliary_consecutive_errors >= MAX_CONSECUTIVE_ERRORS + 1:
-                        evaluation_finished = True
-                        break
+                consecutive_errors += 1
+                submitted_index += 1
 
-                consecutive_errors = max(consecutive_errors, auxiliary_consecutive_errors)
+                # Tercer error -> terminamos.
+                if consecutive_errors >= ERROR_LIMIT:
+                    evaluation_finished = True
+                    break
 
-            if submitted_end >= len(submitted_words):
-                evaluation_finished = True
-                break
+                continue
 
-        # -------------------------------------------------------------
-        # Si la evaluación terminó dentro de un bloque y todavía quedan
-        # palabras del jugador que no han sido visitadas por los opcodes,
-        # también deben aparecer en rojo.
-        # -------------------------------------------------------------
-        for i in range(finished_submitted_index, len(submitted_words)):
+            # =========================================================
+            # 3. BUSCAR SI LA PALABRA ESCRITA APARECE MUY PRONTO
+            #    EN LA LETRA.
+            #
+            #    Ejemplo:
+            #
+            #    LETRA:
+            #        I surrender oh I surrender
+            #
+            #    RESPUESTA:
+            #        I surrender I surrender
+            #
+            #    Al llegar a "oh":
+            #
+            #        oh -> amarillo
+            #
+            #    porque la siguiente palabra escrita ("I") aparece
+            #    inmediatamente después en la letra.
+            #
+            #    También permite hasta dos omisiones consecutivas.
+            # =========================================================
+
+            submitted_found_ahead = None
+
+            for distance in range(
+                1,
+                ERROR_LIMIT + 1,
+            ):
+                index = answer_index + distance
+
+                if index >= len(self.answer_words):
+                    break
+
+                if self.answer_words[index] == submitted:
+                    submitted_found_ahead = distance
+                    break
+
+            if submitted_found_ahead is not None:
+                # La palabra actual de la letra ha sido omitida.
+                feedback.append({
+                    "word": self.answer_display_words[answer_index],
+                    "correct": False,
+                    "omitted": True,
+                })
+
+                consecutive_errors += 1
+                answer_index += 1
+
+                # Tercer error -> terminamos.
+                if consecutive_errors >= ERROR_LIMIT:
+                    evaluation_finished = True
+                    break
+
+                continue
+
+            # =========================================================
+            # 4. NO HAY UNA ALINEACIÓN CLARA
+            #
+            #    Ni la palabra esperada aparece pronto en lo escrito, ni
+            #    lo escrito aparece pronto en la letra. Se trata como una
+            #    sustitución directa de una palabra por otra en la misma
+            #    posición: UN solo error, sin importar si se parecen o
+            #    no ("wlking" por "walking", o incluso una palabra
+            #    totalmente distinta). Por eso avanzamos los DOS índices
+            #    a la vez; si solo avanzáramos el de lo escrito, la
+            #    palabra de la letra quedaría pendiente y un caso
+            #    posterior podría marcarla también como omitida,
+            #    contando el mismo fallo dos veces.
+            # =========================================================
+
             feedback.append({
-                "word": submitted_words[i],
+                "word": submitted_words[submitted_index],
                 "correct": False,
                 "omitted": False,
             })
 
-        # -------------------------------------------------------------
-        # Bonus por respuesta perfecta
-        # -------------------------------------------------------------
+            consecutive_errors += 1
+            answer_index += 1
+            submitted_index += 1
+
+            # Tercer error -> terminamos.
+            if consecutive_errors >= ERROR_LIMIT:
+                evaluation_finished = True
+                break
+
+        # =============================================================
+        # 5. SI SE HAN ACABADO LAS PALABRAS DEL JUGADOR
+        #
+        #    No marcamos como omitidas las palabras restantes de la
+        #    letra. El jugador simplemente ha terminado su respuesta.
+        # =============================================================
+
+        # =============================================================
+        # 6. SI LA EVALUACIÓN TERMINÓ POR EL TERCER ERROR
+        #
+        #    Todo lo que haya escrito el jugador después es ROJO,
+        #    independientemente de si coincide o no con la letra.
+        # =============================================================
+
+        if evaluation_finished:
+            while submitted_index < len(submitted_words):
+                feedback.append({
+                    "word": submitted_words[submitted_index],
+                    "correct": False,
+                    "omitted": False,
+                })
+
+                submitted_index += 1
+
+        # =============================================================
+        # 7. BONUS DE RESPUESTA PERFECTA
+        #
+        #    Una respuesta puede ser un prefijo correcto de la letra.
+        #    Las palabras restantes de la letra NO cuentan como omitidas.
+        # =============================================================
+
         perfect = (
             len(normalized_words) > 0
+            and not evaluation_finished
             and correct_words == len(normalized_words)
-            and not any(item.get("omitted", False) for item in feedback)
             and all(
                 item["correct"]
                 for item in feedback
                 if not item.get("omitted", False)
+            )
+            and not any(
+                item.get("omitted", False)
+                for item in feedback
             )
         )
 

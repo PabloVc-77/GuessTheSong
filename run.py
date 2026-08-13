@@ -32,11 +32,12 @@ game_mode = "guess_song"
 ronda_en_progreso = False
 
 # ---------- PARAMETROS ----------
-LISTA = 'prueba.txt'    # Lista de canciones
+LISTA = 'Olaf.txt'    # Lista de canciones
 T_FRAGMENT = 5        # Duracion del fragmento
 T_RESP = 45           # Tiempo para responder
 ROUNDS = 10  # Número de canciones por ronda
 MAX_LYRIC_ATTEMPTS = 5
+GRACIA_ENVIO_FINAL = 2.0   # Margen (s) tras acabar el tiempo para recibir auto-envíos
 
 # ---------- ESTADO ----------
 cancion_actual = 0
@@ -219,6 +220,9 @@ def iniciar_temporizador():
     pedidores_30s.clear()
     plus_30s_usado = False
 
+    # Avisa a los clientes de que empieza una nueva ventana de respuesta:
+    # limpia el input, reactiva el envío y resetea el estado de "ya enviado".
+    emit_a_todos("nueva_ronda_jugador", {})
     emit_a_todos("estado", "🎵 ¡Responde ahora! Tienes " + str(T_RESP) + " segundos...")
 
     def cuenta_atras():
@@ -228,6 +232,20 @@ def iniciar_temporizador():
             time.sleep(1)
             tiempo_restante -= 1
         emit_a_todos("temporizador", 0)
+
+        # Avisa a los navegadores para que envíen automáticamente lo que
+        # tengan escrito en el input, y da un pequeño margen para que esas
+        # respuestas lleguen antes de evaluar.
+        emit_a_todos("tiempo_agotado", {})
+        emit_a_todos("estado", "⏰ ¡Tiempo terminado! Recogiendo últimas respuestas...")
+
+        total_jugadores = len([n for n in puntuaciones if n != "host"])
+        pasos = max(1, int(GRACIA_ENVIO_FINAL / 0.2))
+        for _ in range(pasos):
+            if total_jugadores and len(respuestas) >= total_jugadores:
+                break
+            time.sleep(0.2)
+
         emit_a_todos("estado", "⏰ ¡Tiempo terminado!")
         temporizador_activo = False
         ronda_en_progreso = False

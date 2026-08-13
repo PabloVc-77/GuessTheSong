@@ -3,6 +3,7 @@ let socket = io({
 });
 
 let jugador = "";
+let respuestaEnviada = false;
 
 
 function solicitarTiempo() {
@@ -66,13 +67,24 @@ function enviarRespuesta() {
         return;
     }
 
+    enviarRespuestaAlServidor(texto, false);
+}
+
+
+// Envía la respuesta al servidor una única vez por ronda.
+// automatica=true cuando se envía porque se acabó el tiempo.
+function enviarRespuestaAlServidor(texto, automatica) {
+    if (respuestaEnviada) return;
+    respuestaEnviada = true;
+
     socket.emit("respuesta", {
         nombre: jugador,
         respuesta: texto
     });
 
-    document.getElementById("resultado")
-        .innerText = "Respuesta enviada.";
+    document.getElementById("resultado").innerText = automatica
+        ? "⏰ Tiempo agotado. Se envió tu respuesta automáticamente."
+        : "Respuesta enviada.";
 
     document.getElementById("respuesta").disabled = true;
 }
@@ -117,10 +129,17 @@ socket.on("temporizador", seg => {
 
 
 socket.on("nueva_ronda_letra", () => {
+    respuestaEnviada = false;
     document.getElementById("respuesta").value = "";
     document.getElementById("respuesta").disabled = false;
     document.getElementById("resultado").innerText = "";
     document.getElementById("feedback-palabras").replaceChildren();
+});
+
+
+socket.on("tiempo_agotado", () => {
+    const texto = document.getElementById("respuesta").value.trim();
+    enviarRespuestaAlServidor(texto, true);
 });
 
 
