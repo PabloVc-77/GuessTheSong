@@ -186,7 +186,11 @@ def iniciar_ronda(intentos=0):
                 respuesta_actual["titulo"] = titulo
                 respuesta_actual["artista"] = artista
                 respuesta_actual["completa"] = round_data["continuation"]
-                emit_a_todos("nueva_ronda_letra", {})
+                emit_a_todos("nueva_ronda_letra", {
+                    "titulo": titulo,
+                    "artista": artista,
+                    "cut_time": round_data["cut_time"],
+                })
                 continue_lyrics_game.play_fragment(archivo)
             except Exception as error:
                 print("Error al preparar letras:", error)

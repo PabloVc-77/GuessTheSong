@@ -22,3 +22,6 @@ templates/static/
 # Sistema
 .DS_Store
 Thumbs.db
+
+# testing
+prueba.txt

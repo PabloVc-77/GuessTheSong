@@ -128,12 +128,32 @@ socket.on("temporizador", seg => {
 });
 
 
-socket.on("nueva_ronda_letra", () => {
+socket.on("nueva_ronda_letra", datos => {
     respuestaEnviada = false;
     document.getElementById("respuesta").value = "";
     document.getElementById("respuesta").disabled = false;
     document.getElementById("resultado").innerText = "";
     document.getElementById("feedback-palabras").replaceChildren();
+
+    const titulo = document.getElementById("titulo-cancion");
+    const momento = document.getElementById("momento-cancion");
+
+    if (datos && datos.titulo) {
+        titulo.innerText = datos.artista
+            ? `🎵 ${datos.titulo} — ${datos.artista}`
+            : `🎵 ${datos.titulo}`;
+    } else {
+        titulo.innerText = "";
+    }
+
+    if (datos && Number.isFinite(Number(datos.cut_time))) {
+        const totalSeconds = Math.max(0, Math.floor(Number(datos.cut_time)));
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = String(totalSeconds % 60).padStart(2, "0");
+        momento.innerText = `⏱️ ${minutes}:${seconds}`;
+    } else {
+        momento.innerText = "";
+    }
 });
 
 

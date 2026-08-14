@@ -10,6 +10,8 @@ from lyrics import get_lyrics, parse_lrc
 MAX_CONSECUTIVE_ERRORS = 2
 PERFECT_BONUS = 5
 MIN_MATCHING_ANCHOR = 0
+# No escoger cortes demasiado cerca del final de la canción.
+MIN_REMAINING_AFTER_CUT = 10
 
 class ContinueLyricsGame:
     """Prepara y evalúa rondas a partir de letras LRC sincronizadas."""
@@ -36,9 +38,11 @@ class ContinueLyricsGame:
         """
         raw_lyrics = self.lyrics_provider(title, artist)
         lines = parse_lrc(raw_lyrics) if raw_lyrics else []
+
+        latest_allowed_cut = duration - MIN_REMAINING_AFTER_CUT
         candidates = [
             index for index, line in enumerate(lines[1:], start=1)
-            if line["time"] <= duration
+            if line["time"] <= latest_allowed_cut
         ]
         if not candidates:
             return None
@@ -142,7 +146,79 @@ class ContinueLyricsGame:
                 continue
 
             # =========================================================
-            # 2. BUSCAR SI LA PALABRA ESPERADA APARECE MUY PRONTO
+            # 2. COMPROBAR SI LA PALABRA ACTUAL ES UN TYPO
+            #
+            #    Si la palabra actual no coincide, pero alguna de las
+            #    siguientes 3 palabras coincide en la misma posición
+            #    relativa, consideramos que la palabra actual es una
+            #    sustitución/typo.
+            #
+            #    Ejemplo:
+            #
+            #    LETRA:
+            #        ... you love somebody to love
+            #
+            #    RESPUESTA:
+            #        ... you want somebody to love
+            #
+            #    Al comparar "love" con "want", la siguiente palabra
+            #    coincide:
+            #
+            #        love     != want
+            #        somebody == somebody
+            #
+            #    Por tanto, "love" -> "want" es un único error y ambos
+            #    índices avanzan. Las palabras posteriores siguen
+            #    correctamente alineadas.
+            #
+            #    Se comprueban las siguientes 3 palabras como máximo.
+            # =========================================================
+
+            typo_detected = False
+
+            for distance in range(1, ERROR_LIMIT + 1):
+                answer_ahead = answer_index + distance
+                submitted_ahead = submitted_index + distance
+
+                if (
+                    answer_ahead >= len(self.answer_words)
+                    or submitted_ahead >= len(normalized_words)
+                ):
+                    break
+
+                if self.answer_words[answer_ahead] == normalized_words[submitted_ahead]:
+                    typo_detected = True
+                    break
+
+            if typo_detected:
+                # La palabra correcta y la escrita ocupan la misma
+                # posición, pero no coinciden: es una sustitución.
+                feedback.append({
+                    "word": self.answer_display_words[answer_index],
+                    "correct": False,
+                    "omitted": True,
+                    "typo": False,
+                })
+                feedback.append({
+                    "word": submitted_words[submitted_index],
+                    "correct": False,
+                    "omitted": False,
+                    "typo": True,
+                })
+
+                consecutive_errors += 1
+                answer_index += 1
+                submitted_index += 1
+
+                # Tercer error -> terminamos.
+                if consecutive_errors >= ERROR_LIMIT:
+                    evaluation_finished = True
+                    break
+
+                continue
+
+            # =========================================================
+            # 3. BUSCAR SI LA PALABRA ESPERADA APARECE MUY PRONTO
             #    EN LA RESPUESTA.
             #
             #    Ejemplo:
@@ -200,7 +276,7 @@ class ContinueLyricsGame:
                 continue
 
             # =========================================================
-            # 3. BUSCAR SI LA PALABRA ESCRITA APARECE MUY PRONTO
+            # 4. BUSCAR SI LA PALABRA ESCRITA APARECE MUY PRONTO
             #    EN LA LETRA.
             #
             #    Ejemplo:
@@ -256,7 +332,7 @@ class ContinueLyricsGame:
                 continue
 
             # =========================================================
-            # 4. NO HAY UNA ALINEACIÓN CLARA
+            # 5. NO HAY UNA ALINEACIÓN CLARA
             #
             #    Ni la palabra esperada aparece pronto en lo escrito, ni
             #    lo escrito aparece pronto en la letra. Se trata como una
@@ -297,14 +373,14 @@ class ContinueLyricsGame:
                 break
 
         # =============================================================
-        # 5. SI SE HAN ACABADO LAS PALABRAS DEL JUGADOR
+        # 6. SI SE HAN ACABADO LAS PALABRAS DEL JUGADOR
         #
         #    No marcamos como omitidas las palabras restantes de la
         #    letra. El jugador simplemente ha terminado su respuesta.
         # =============================================================
 
         # =============================================================
-        # 6. SI LA EVALUACIÓN TERMINÓ POR EL TERCER ERROR
+        # 7. SI LA EVALUACIÓN TERMINÓ POR EL TERCER ERROR
         #
         #    Todo lo que haya escrito el jugador después es ROJO,
         #    independientemente de si coincide o no con la letra.
@@ -322,7 +398,7 @@ class ContinueLyricsGame:
                 submitted_index += 1
 
         # =============================================================
-        # 7. BONUS DE RESPUESTA PERFECTA
+        # 8. BONUS DE RESPUESTA PERFECTA
         #
         #    Una respuesta puede ser un prefijo correcto de la letra.
         #    Las palabras restantes de la letra NO cuentan como omitidas.
