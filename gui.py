@@ -61,7 +61,6 @@ def crear_panel_host():
     ).grid(
         row=0,
         column=0,
-        columnspan=2,
         sticky="w",
         padx=18,
         pady=(16, 2)
@@ -76,7 +75,6 @@ def crear_panel_host():
     ).grid(
         row=1,
         column=0,
-        columnspan=2,
         sticky="w",
         padx=18
     )
@@ -219,6 +217,64 @@ def crear_panel_host():
         button_hover_color="#168a3f"
     ).grid(
         row=5,
+        column=1,
+        sticky="ew",
+        padx=18
+    )
+
+    # ── LISTA DE CANCIONES ─────────────────────────────────────
+
+    ctk.CTkLabel(
+        right,
+        text="LISTA DE CANCIONES",
+        text_color=MUTED,
+        font=ctk.CTkFont(size=14, weight="bold")
+    ).grid(
+        row=0,
+        column=1,
+        sticky="w",
+        padx=18,
+        pady=(16, 2)
+    )
+
+    listas_disponibles = run.obtener_listas()
+
+    lista_labels = {
+        lista.stem: lista.name
+        for lista in listas_disponibles
+    }
+
+    lista_nombres = list(lista_labels.keys())
+
+    lista_actual = tk.StringVar(
+        value=run.LISTA.stem
+        if run.LISTA.stem in lista_nombres
+        else (lista_nombres[0] if lista_nombres else "Sin listas")
+    )
+
+
+    def cambiar_lista(nombre):
+        if nombre == "Sin listas":
+            return
+
+        nombre_archivo = lista_labels[nombre]
+
+        if not run.action_cambiar_lista(nombre_archivo):
+            lista_actual.set(run.LISTA.stem)
+
+
+    lista_menu = ctk.CTkOptionMenu(
+        right,
+        values=lista_nombres or ["Sin listas"],
+        variable=lista_actual,
+        command=cambiar_lista,
+        fg_color="#2a2a2a",
+        button_color=ACCENT,
+        button_hover_color="#168a3f"
+    )
+
+    lista_menu.grid(
+        row=1,
         column=1,
         sticky="ew",
         padx=18

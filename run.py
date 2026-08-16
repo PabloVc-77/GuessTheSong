@@ -1,4 +1,5 @@
 import socket
+from pathlib import Path
 
 import threading
 import time
@@ -32,7 +33,8 @@ game_mode = "guess_song"
 ronda_en_progreso = False
 
 # ---------- PARAMETROS ----------
-LISTA = 'Olaf.txt'    # Lista de canciones
+DATA_DIR = Path(__file__).parent / "data"
+LISTA = DATA_DIR / "Olaf.txt"
 T_FRAGMENT = 5        # Duracion del fragmento
 T_RESP = 45           # Tiempo para responder
 ROUNDS = 10  # Número de canciones por ronda
@@ -56,9 +58,26 @@ def obtener_ip_local():
         s.close()
     return ip
 
+def obtener_listas():
+    """Devuelve las listas .txt disponibles en data/."""
+    if not DATA_DIR.exists():
+        return []
+
+    return sorted(
+        archivo for archivo in DATA_DIR.glob("*.txt")
+        if archivo.is_file()
+    )
+
 def elegir_cancion():
+    if not LISTA.exists():
+        raise FileNotFoundError(f"No existe la lista de canciones: {LISTA}")
+
     with open(LISTA, encoding="utf-8") as f:
         canciones = [line.strip() for line in f if " - " in line]
+
+    if not canciones:
+        raise ValueError(f"La lista está vacía o no tiene un formato válido: {LISTA}")
+
     seleccionada = random.choice(canciones)
     titulo, artista = [s.strip() for s in seleccionada.split(" - ", 1)]
     return titulo, artista
@@ -314,6 +333,33 @@ def action_nueva_ronda():
     emit_a_todos("estado", f"🎵 Ronda {ronda_actual}, canción {cancion_actual}/{ROUNDS}")
     iniciar_ronda()
 
+def action_cambiar_lista(nombre_lista):
+    global LISTA
+
+    if ronda_en_progreso:
+        print("No se puede cambiar la lista durante una ronda.")
+        return False
+
+    lista = DATA_DIR / nombre_lista
+
+    # Evita aceptar rutas arbitrarias
+    if lista.parent.resolve() != DATA_DIR.resolve():
+        print("Lista no válida.")
+        return False
+
+    if not lista.is_file() or lista.suffix.lower() != ".txt":
+        print(f"Lista no válida: {nombre_lista}")
+        return False
+
+    LISTA = lista
+
+    print(f"Lista seleccionada: {LISTA.name}")
+    emit_a_todos(
+        "estado",
+        f"📋 Lista seleccionada: {LISTA.stem}"
+    )
+
+    return True
 
 def action_cambiar_modo(mode):
     global game_mode
