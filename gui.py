@@ -244,12 +244,21 @@ def crear_panel_host():
         for lista in listas_disponibles
     }
 
+    # Opción especial para jugar únicamente con canciones de la caché
+    lista_labels["🎧 Canciones en caché"] = "__CACHE__"
+
     lista_nombres = list(lista_labels.keys())
 
     lista_actual = tk.StringVar(
-        value=run.LISTA.stem
-        if run.LISTA.stem in lista_nombres
-        else (lista_nombres[0] if lista_nombres else "Sin listas")
+        value=(
+            "🎧 Canciones en caché"
+            if run.USAR_CACHE
+            else (
+                run.LISTA.stem
+                if run.LISTA.stem in lista_nombres
+                else (lista_nombres[0] if lista_nombres else "Sin listas")
+            )
+        )
     )
 
 
@@ -260,7 +269,10 @@ def crear_panel_host():
         nombre_archivo = lista_labels[nombre]
 
         if not run.action_cambiar_lista(nombre_archivo):
-            lista_actual.set(run.LISTA.stem)
+            if run.USAR_CACHE:
+                lista_actual.set("🎧 Canciones en caché")
+            else:
+                lista_actual.set(run.LISTA.stem)
 
 
     lista_menu = ctk.CTkOptionMenu(

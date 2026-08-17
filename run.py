@@ -35,6 +35,8 @@ ronda_en_progreso = False
 # ---------- PARAMETROS ----------
 DATA_DIR = Path(__file__).parent / "data"
 LISTA = DATA_DIR / "Olaf.txt"
+CACHE_DIR = Path(__file__).parent / "Cache" / "Songs"
+USAR_CACHE = False
 T_FRAGMENT = 5        # Duracion del fragmento
 T_RESP = 45           # Tiempo para responder
 ROUNDS = 10  # Número de canciones por ronda
@@ -69,6 +71,32 @@ def obtener_listas():
     )
 
 def elegir_cancion():
+    if USAR_CACHE:
+        if not CACHE_DIR.exists():
+            raise ValueError("La carpeta de caché no existe.")
+
+        canciones = []
+
+        for carpeta in CACHE_DIR.iterdir():
+            if not carpeta.is_dir():
+                continue
+
+            archivo_mp3 = carpeta / f"{carpeta.name}.mp3"
+
+            if not archivo_mp3.exists():
+                continue
+
+            if " - " not in carpeta.name:
+                continue
+
+            artista, titulo = carpeta.name.split(" - ", 1)
+            canciones.append((titulo.strip(), artista.strip()))
+
+        if not canciones:
+            raise ValueError("No hay canciones disponibles en la caché.")
+
+        return random.choice(canciones)
+
     if not LISTA.exists():
         raise FileNotFoundError(f"No existe la lista de canciones: {LISTA}")
 
@@ -334,11 +362,20 @@ def action_nueva_ronda():
     iniciar_ronda()
 
 def action_cambiar_lista(nombre_lista):
-    global LISTA
+    global LISTA, USAR_CACHE
 
     if ronda_en_progreso:
         print("No se puede cambiar la lista durante una ronda.")
         return False
+
+    if nombre_lista == "__CACHE__":
+        USAR_CACHE = True
+        print("Fuente seleccionada: canciones en caché")
+        emit_a_todos(
+            "estado",
+            "🎧 Fuente seleccionada: canciones en caché"
+        )
+        return True
 
     lista = DATA_DIR / nombre_lista
 
@@ -352,6 +389,7 @@ def action_cambiar_lista(nombre_lista):
         return False
 
     LISTA = lista
+    USAR_CACHE = False
 
     print(f"Lista seleccionada: {LISTA.name}")
     emit_a_todos(
