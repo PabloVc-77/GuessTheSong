@@ -6,6 +6,7 @@ import unicodedata
 
 from audio import AudioPlayer
 from lyrics import get_lyrics, parse_lrc
+from lyrics_scorer import LyricsScorer
 
 MAX_CONSECUTIVE_ERRORS = 2
 PERFECT_BONUS = 5
@@ -29,6 +30,8 @@ class ContinueLyricsGame:
         self.answer_lyrics = ""
         self.last_played_line = ""
         self.answer_words = []
+        self.answer_display_words = []
+        self._scorer = None
 
     def prepare_round(self, title, artist, duration):
         """Prepara una ronda y devuelve sus datos, o ``None`` si no es viable.
@@ -61,6 +64,12 @@ class ContinueLyricsGame:
         self.answer_display_words = self._display_words(self.answer_lyrics)
         self.answer_words = self._words(self.answer_lyrics)
 
+        self._scorer = LyricsScorer(
+            answer_words=self.answer_words,
+            max_consecutive_errors=MAX_CONSECUTIVE_ERRORS,
+            answer_display_words=self.answer_display_words,
+        )
+
         if selected_index > 0:
             self.last_played_line = lines[selected_index - 1]["text"]
         else:
@@ -86,17 +95,26 @@ class ContinueLyricsGame:
         )
 
     def evaluate_answer(self, answer):
-        """Evalúa la respuesta recorriendo la letra de izquierda a derecha.
+        """Evalúa la respuesta buscando la alineación que maximiza la
+        puntuación del jugador (no una simple comparación izquierda a
+        derecha ni una heurística de ventana fija).
 
         Reglas:
         - Coincidencia exacta -> verde y +1 punto.
         - Palabra escrita de más -> rojo.
         - Palabra de la letra omitida -> amarillo.
+        - Sustitución/typo -> amarillo (palabra correcta) seguido de
+          naranja (lo escrito), como un único error.
         - Al tercer error consecutivo se termina la evaluación.
         - Todo lo escrito posteriormente se muestra en rojo.
         - Las palabras de la letra que quedan después de terminar la
         respuesta del jugador no se consideran omitidas.
         - Una respuesta completamente correcta recibe el bonus de +5.
+
+        La alineación en sí (qué es acierto, qué es typo, qué se omite y
+        qué sobra) la resuelve ``LyricsScorer``, que prueba todas las
+        interpretaciones válidas y se queda con la de mayor puntuación,
+        en vez de asumir que la primera alineación aparente es la mejor.
         """
 
         if self.cut_time is None:
@@ -105,300 +123,16 @@ class ContinueLyricsGame:
         submitted_words = self._display_words(answer)
         normalized_words = self._words(answer)
 
-        feedback = []
-        correct_words = 0
+        result = self._scorer.score(
+            normalized_words, submitted_display_words=submitted_words
+        )
 
-        answer_index = 0
-        submitted_index = 0
-
-        consecutive_errors = 0
-        evaluation_finished = False
-
-        ERROR_LIMIT = MAX_CONSECUTIVE_ERRORS + 1
-
-        while (
-            answer_index < len(self.answer_words)
-            and submitted_index < len(normalized_words)
-        ):
-
-            expected = self.answer_words[answer_index]
-            submitted = normalized_words[submitted_index]
-
-            # =========================================================
-            # 1. PALABRA CORRECTA
-            # =========================================================
-            if submitted == expected:
-                feedback.append({
-                    "word": submitted_words[submitted_index],
-                    "correct": True,
-                    "omitted": False,
-                    "typo": False,
-                })
-
-                correct_words += 1
-
-                # Una palabra correcta rompe la cadena de errores.
-                consecutive_errors = 0
-
-                answer_index += 1
-                submitted_index += 1
-
-                continue
-
-            # =========================================================
-            # 2. COMPROBAR SI LA PALABRA ACTUAL ES UN TYPO
-            #
-            #    Si la palabra actual no coincide, pero alguna de las
-            #    siguientes 3 palabras coincide en la misma posición
-            #    relativa, consideramos que la palabra actual es una
-            #    sustitución/typo.
-            #
-            #    Ejemplo:
-            #
-            #    LETRA:
-            #        ... you love somebody to love
-            #
-            #    RESPUESTA:
-            #        ... you want somebody to love
-            #
-            #    Al comparar "love" con "want", la siguiente palabra
-            #    coincide:
-            #
-            #        love     != want
-            #        somebody == somebody
-            #
-            #    Por tanto, "love" -> "want" es un único error y ambos
-            #    índices avanzan. Las palabras posteriores siguen
-            #    correctamente alineadas.
-            #
-            #    Se comprueban las siguientes 3 palabras como máximo.
-            # =========================================================
-
-            typo_detected = False
-
-            for distance in range(1, ERROR_LIMIT + 1):
-                answer_ahead = answer_index + distance
-                submitted_ahead = submitted_index + distance
-
-                if (
-                    answer_ahead >= len(self.answer_words)
-                    or submitted_ahead >= len(normalized_words)
-                ):
-                    break
-
-                if self.answer_words[answer_ahead] == normalized_words[submitted_ahead]:
-                    typo_detected = True
-                    break
-
-            if typo_detected:
-                # La palabra correcta y la escrita ocupan la misma
-                # posición, pero no coinciden: es una sustitución.
-                feedback.append({
-                    "word": self.answer_display_words[answer_index],
-                    "correct": False,
-                    "omitted": True,
-                    "typo": False,
-                })
-                feedback.append({
-                    "word": submitted_words[submitted_index],
-                    "correct": False,
-                    "omitted": False,
-                    "typo": True,
-                })
-
-                consecutive_errors += 1
-                answer_index += 1
-                submitted_index += 1
-
-                # Tercer error -> terminamos.
-                if consecutive_errors >= ERROR_LIMIT:
-                    evaluation_finished = True
-                    break
-
-                continue
-
-            # =========================================================
-            # 3. BUSCAR SI LA PALABRA ESPERADA APARECE MUY PRONTO
-            #    EN LA RESPUESTA.
-            #
-            #    Ejemplo:
-            #
-            #    LETRA:
-            #        ... gonna crack
-            #
-            #    RESPUESTA:
-            #        ... I m not gonna crack
-            #
-            #    "gonna" aparece 3 posiciones más adelante.
-            #
-            #    Por tanto:
-            #        I   -> rojo
-            #        m   -> rojo
-            #        not -> rojo
-            #
-            #    y al tercer error terminamos.
-            #
-            #    Esto evita interpretar "gonna crack" como omitido.
-            # =========================================================
-
-            expected_found_ahead = None
-
-            for distance in range(
-                1,
-                ERROR_LIMIT + 1,
-            ):
-                index = submitted_index + distance
-
-                if index >= len(normalized_words):
-                    break
-
-                if normalized_words[index] == expected:
-                    expected_found_ahead = distance
-                    break
-
-            if expected_found_ahead is not None:
-                # La palabra actual es incorrecta.
-                feedback.append({
-                    "word": submitted_words[submitted_index],
-                    "correct": False,
-                    "omitted": False,
-                    "typo": False,
-                })
-
-                consecutive_errors += 1
-                submitted_index += 1
-
-                # Tercer error -> terminamos.
-                if consecutive_errors >= ERROR_LIMIT:
-                    evaluation_finished = True
-                    break
-
-                continue
-
-            # =========================================================
-            # 4. BUSCAR SI LA PALABRA ESCRITA APARECE MUY PRONTO
-            #    EN LA LETRA.
-            #
-            #    Ejemplo:
-            #
-            #    LETRA:
-            #        I surrender oh I surrender
-            #
-            #    RESPUESTA:
-            #        I surrender I surrender
-            #
-            #    Al llegar a "oh":
-            #
-            #        oh -> amarillo
-            #
-            #    porque la siguiente palabra escrita ("I") aparece
-            #    inmediatamente después en la letra.
-            #
-            #    También permite hasta dos omisiones consecutivas.
-            # =========================================================
-
-            submitted_found_ahead = None
-
-            for distance in range(
-                1,
-                ERROR_LIMIT + 1,
-            ):
-                index = answer_index + distance
-
-                if index >= len(self.answer_words):
-                    break
-
-                if self.answer_words[index] == submitted:
-                    submitted_found_ahead = distance
-                    break
-
-            if submitted_found_ahead is not None:
-                # La palabra actual de la letra ha sido omitida.
-                feedback.append({
-                    "word": self.answer_display_words[answer_index],
-                    "correct": False,
-                    "omitted": True,
-                    "typo": False,
-                })
-
-                consecutive_errors += 1
-                answer_index += 1
-
-                # Tercer error -> terminamos.
-                if consecutive_errors >= ERROR_LIMIT:
-                    evaluation_finished = True
-                    break
-
-                continue
-
-            # =========================================================
-            # 5. NO HAY UNA ALINEACIÓN CLARA
-            #
-            #    Ni la palabra esperada aparece pronto en lo escrito, ni
-            #    lo escrito aparece pronto en la letra. Se trata como una
-            #    sustitución directa de una palabra por otra en la misma
-            #    posición: UN solo error, sin importar si se parecen o
-            #    no ("wlking" por "walking", o incluso una palabra
-            #    totalmente distinta). Por eso avanzamos los DOS índices
-            #    a la vez; si solo avanzáramos el de lo escrito, la
-            #    palabra de la letra quedaría pendiente y un caso
-            #    posterior podría marcarla también como omitida,
-            #    contando el mismo fallo dos veces.
-            #
-            #    Para que el jugador vea la corrección, mostramos la
-            #    palabra correcta (amarillo) seguida de lo que escribió
-            #    (naranja): "made make" en vez de solo "make".
-            # =========================================================
-
-            feedback.append({
-                "word": self.answer_display_words[answer_index],
-                "correct": False,
-                "omitted": True,
-                "typo": False,
-            })
-            feedback.append({
-                "word": submitted_words[submitted_index],
-                "correct": False,
-                "omitted": False,
-                "typo": True,
-            })
-
-            consecutive_errors += 1
-            answer_index += 1
-            submitted_index += 1
-
-            # Tercer error -> terminamos.
-            if consecutive_errors >= ERROR_LIMIT:
-                evaluation_finished = True
-                break
+        feedback = result.feedback
+        correct_words = result.score
+        evaluation_finished = result.broken
 
         # =============================================================
-        # 6. SI SE HAN ACABADO LAS PALABRAS DEL JUGADOR
-        #
-        #    No marcamos como omitidas las palabras restantes de la
-        #    letra. El jugador simplemente ha terminado su respuesta.
-        # =============================================================
-
-        # =============================================================
-        # 7. SI LA EVALUACIÓN TERMINÓ POR EL TERCER ERROR
-        #
-        #    Todo lo que haya escrito el jugador después es ROJO,
-        #    independientemente de si coincide o no con la letra.
-        # =============================================================
-
-        if evaluation_finished:
-            while submitted_index < len(submitted_words):
-                feedback.append({
-                    "word": submitted_words[submitted_index],
-                    "correct": False,
-                    "omitted": False,
-                    "typo": False,
-                })
-
-                submitted_index += 1
-
-        # =============================================================
-        # 8. BONUS DE RESPUESTA PERFECTA
+        # BONUS DE RESPUESTA PERFECTA
         #
         #    Una respuesta puede ser un prefijo correcto de la letra.
         #    Las palabras restantes de la letra NO cuentan como omitidas.
