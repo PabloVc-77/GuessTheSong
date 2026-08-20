@@ -1,10 +1,19 @@
 """Obtención, caché y lectura de letras sincronizadas en formato LRC."""
 
 import re
+import sys
 from pathlib import Path
 
 
-CACHE_DIR = Path("cache/lyrics")
+def get_app_dir():
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+
+    return Path(__file__).resolve().parent
+
+
+APP_DIR = get_app_dir()
+CACHE_DIR = APP_DIR / "Cache" / "Lyrics"
 _TIMESTAMP_RE = re.compile(
     r"\[(?P<minutes>\d+):(?P<seconds>\d{1,2}(?:[.:]\d{1,3})?)\]"
 )

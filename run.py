@@ -1,4 +1,5 @@
 import socket
+import sys
 from pathlib import Path
 
 import threading
@@ -11,9 +12,6 @@ from audio import AudioPlayer
 from games.continue_lyrics import ContinueLyricsGame
 from games.guess_song import evaluar_respuesta, respuesta_correcta
 
-
-app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 jugadores_conectados = {}        # sid → nombre
 puntuaciones = {}                # nombre → puntos
@@ -33,9 +31,20 @@ game_mode = "guess_song"
 ronda_en_progreso = False
 
 # ---------- PARAMETROS ----------
-DATA_DIR = Path(__file__).parent / "data"
+def get_app_dir():
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+
+    return Path(__file__).resolve().parent
+
+
+APP_DIR = get_app_dir()
+
+DATA_DIR = APP_DIR / "data"
 LISTA = DATA_DIR / "Olaf.txt"
-CACHE_DIR = Path(__file__).parent / "Cache" / "Songs"
+CACHE_DIR = APP_DIR / "Cache" / "Songs"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
 USAR_CACHE = False
 T_FRAGMENT = 5        # Duracion del fragmento
 T_RESP = 45           # Tiempo para responder
@@ -46,6 +55,15 @@ GRACIA_ENVIO_FINAL = 2.0   # Margen (s) tras acabar el tiempo para recibir auto-
 # ---------- ESTADO ----------
 cancion_actual = 0
 ronda_actual = 1
+
+# ---------- Flask / SocketIO ----------
+
+app = Flask(
+    __name__,
+    template_folder=str(APP_DIR / "templates"),
+    static_folder=str(APP_DIR / "static"),
+)
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 # ---------- Funciones auxiliares ----------
 

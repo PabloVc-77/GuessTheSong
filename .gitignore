@@ -25,3 +25,10 @@ Thumbs.db
 
 # testing
 prueba.txt
+
+# ffmpeg
+ffmpeg/
+
+# Distribution / packaging
+dist/
+build/

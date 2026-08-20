@@ -3,6 +3,8 @@ import shutil
 import tempfile
 import subprocess
 import time
+import sys
+from pathlib import Path
 
 import pygame
 from yt_dlp import YoutubeDL
@@ -11,11 +13,41 @@ from yt_dlp import YoutubeDL
 pygame.mixer.init()
 
 
-CACHE_DIR = os.path.join("Cache", "Songs")
+def get_app_dir():
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+
+    return Path(__file__).resolve().parent
+
+
+APP_DIR = get_app_dir()
+
+CACHE_DIR = APP_DIR / "Cache" / "Songs"
+FFMPEG_DIR = APP_DIR / "ffmpeg"
+
+FFMPEG_PATH = FFMPEG_DIR / "ffmpeg.exe"
+FFPROBE_PATH = FFMPEG_DIR / "ffprobe.exe"
+
+def check_ffmpeg():
+    missing = []
+
+    if not FFMPEG_PATH.is_file():
+        missing.append(str(FFMPEG_PATH))
+
+    if not FFPROBE_PATH.is_file():
+        missing.append(str(FFPROBE_PATH))
+
+    if missing:
+        raise RuntimeError(
+            "No se han encontrado los archivos necesarios de FFmpeg:\n"
+            + "\n".join(missing)
+        )
 
 
 class AudioPlayer:
     def __init__(self):
+        check_ffmpeg()
+
         self.temp_files = []
 
         self.download_active = False
@@ -31,8 +63,8 @@ class AudioPlayer:
         return value.strip().strip(".")
 
     def _song_dir(self, title, artist):
-        return os.path.join(
-            CACHE_DIR,
+        return str(
+            CACHE_DIR /
             f"{self._safe_name(artist)} - {self._safe_name(title)}"
         )
 
@@ -72,7 +104,7 @@ class AudioPlayer:
             time.sleep(0.05)
 
             duration_result = subprocess.run([
-                "ffprobe",
+                str(FFPROBE_PATH),
                 "-v",
                 "error",
                 "-show_entries",
@@ -199,7 +231,7 @@ class AudioPlayer:
         )
 
         result = subprocess.run([
-            "ffmpeg",
+            str(FFMPEG_PATH),
             "-y",
             "-ss",
             str(start),
