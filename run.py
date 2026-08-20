@@ -70,6 +70,69 @@ def obtener_listas():
         if archivo.is_file()
     )
 
+def crear_lista(nombre, contenido):
+    """Crea una nueva playlist .txt dentro de data/."""
+
+    if ronda_en_progreso:
+        return False, "No se puede crear una playlist durante una ronda."
+
+    nombre = nombre.strip()
+
+    if not nombre:
+        return False, "El nombre de la playlist no puede estar vacío."
+
+    # Evitar nombres que puedan provocar problemas con rutas
+    nombre_archivo = Path(nombre).name
+
+    if nombre_archivo != nombre:
+        return False, "El nombre de la playlist no es válido."
+
+    if not nombre.lower().endswith(".txt"):
+        nombre_archivo += ".txt"
+
+    lista = DATA_DIR / nombre_archivo
+
+    if lista.exists():
+        return False, "Ya existe una playlist con ese nombre."
+
+    # Limpiar y validar las canciones
+    canciones = []
+
+    for linea in contenido.splitlines():
+        linea = linea.strip()
+
+        if not linea:
+            continue
+
+        if " - " not in linea:
+            continue
+
+        titulo, artista = linea.split(" - ", 1)
+
+        titulo = titulo.strip()
+        artista = artista.strip()
+
+        if not titulo or not artista:
+            continue
+
+        canciones.append(f"{titulo} - {artista}")
+
+    if not canciones:
+        return False, "No se ha encontrado ninguna canción válida."
+
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    with open(lista, "w", encoding="utf-8") as f:
+        f.write("\n".join(canciones) + "\n")
+
+    print(f"Playlist creada: {lista.name} ({len(canciones)} canciones)")
+
+    return True, {
+        "nombre": lista.stem,
+        "archivo": lista.name,
+        "canciones": len(canciones),
+    }
+
 def elegir_cancion():
     if USAR_CACHE:
         if not CACHE_DIR.exists():
@@ -398,6 +461,147 @@ def action_cambiar_lista(nombre_lista):
     )
 
     return True
+
+def action_crear_lista(nombre, contenido):
+    """Crea una playlist y la selecciona automáticamente."""
+
+    resultado = crear_lista(nombre, contenido)
+
+    if not resultado[0]:
+        return resultado
+
+    datos = resultado[1]
+
+    # Seleccionar automáticamente la nueva playlist
+    lista = DATA_DIR / datos["archivo"]
+
+    global LISTA, USAR_CACHE
+    LISTA = lista
+    USAR_CACHE = False
+
+    print(f"Playlist creada y seleccionada: {LISTA.name}")
+
+    emit_a_todos(
+        "estado",
+        f"📋 Playlist creada: {LISTA.stem} "
+        f"({datos['canciones']} canciones)"
+    )
+
+    return True, datos
+
+def action_eliminar_lista(nombre_lista):
+    """Elimina una playlist .txt de data/."""
+
+    global LISTA, USAR_CACHE
+
+    if ronda_en_progreso:
+        return False, "No se puede eliminar una playlist durante una ronda."
+
+    if not nombre_lista or nombre_lista in {"__CACHE__", "__CREATE__", "__DELETE__"}:
+        return False, "No se puede eliminar esta opción."
+
+    lista = DATA_DIR / nombre_lista
+
+    # Evita aceptar rutas arbitrarias
+    if lista.parent.resolve() != DATA_DIR.resolve():
+        return False, "Lista no válida."
+
+    if not lista.is_file() or lista.suffix.lower() != ".txt":
+        return False, "Lista no válida."
+
+    # No permitir eliminar la playlist actualmente seleccionada
+    # mientras haya que mantener una lista válida.
+    if lista.resolve() == LISTA.resolve():
+        return False, "No puedes eliminar la playlist que está seleccionada."
+
+    try:
+        lista.unlink()
+    except OSError as e:
+        print(f"Error eliminando playlist: {e}")
+        return False, "No se pudo eliminar la playlist."
+
+    print(f"Playlist eliminada: {lista.name}")
+
+    emit_a_todos(
+        "estado",
+        f"🗑️ Playlist eliminada: {lista.stem}"
+    )
+
+    return True, lista.stem
+
+def action_editar_lista(nombre_lista, nuevo_nombre, contenido):
+    """Edita una playlist existente."""
+
+    global LISTA, USAR_CACHE
+
+    if ronda_en_progreso:
+        return False, "No se puede editar una playlist durante una ronda."
+
+    if not nombre_lista or not nuevo_nombre.strip():
+        return False, "El nombre de la playlist no puede estar vacío."
+
+    lista = DATA_DIR / nombre_lista
+
+    if lista.parent.resolve() != DATA_DIR.resolve():
+        return False, "Lista no válida."
+
+    if not lista.is_file() or lista.suffix.lower() != ".txt":
+        return False, "Lista no válida."
+
+    nuevo_nombre = Path(nuevo_nombre.strip()).name
+
+    if not nuevo_nombre.lower().endswith(".txt"):
+        nuevo_nombre += ".txt"
+
+    nueva_lista = DATA_DIR / nuevo_nombre
+
+    # Si cambia el nombre, no permitir sobrescribir otra playlist
+    if nueva_lista.resolve() != lista.resolve() and nueva_lista.exists():
+        return False, "Ya existe una playlist con ese nombre."
+
+    canciones = []
+
+    for linea in contenido.splitlines():
+        linea = linea.strip()
+
+        if not linea:
+            continue
+
+        if " - " not in linea:
+            continue
+
+        titulo, artista = linea.split(" - ", 1)
+
+        titulo = titulo.strip()
+        artista = artista.strip()
+
+        if titulo and artista:
+            canciones.append(f"{titulo} - {artista}")
+
+    if not canciones:
+        return False, "No se ha encontrado ninguna canción válida."
+
+    with open(nueva_lista, "w", encoding="utf-8") as f:
+        f.write("\n".join(canciones) + "\n")
+
+    # Si se ha cambiado el nombre, eliminar el archivo antiguo
+    if nueva_lista.resolve() != lista.resolve():
+        lista.unlink()
+
+    # La playlist editada pasa a ser la seleccionada
+    LISTA = nueva_lista
+    USAR_CACHE = False
+
+    emit_a_todos(
+        "estado",
+        f"✏️ Playlist editada: {nueva_lista.stem}"
+    )
+
+    return True, {
+        "nombre": nueva_lista.stem,
+        "archivo": nueva_lista.name,
+        "canciones": len(canciones),
+    }
 
 def action_cambiar_modo(mode):
     global game_mode
