@@ -1057,9 +1057,11 @@ def action_terminar_partida():
     global panel_ranking_data
     global panel_reveal
     global ronda_en_progreso
+    global tiempo_restante
 
     partida_terminada = True
     ronda_en_progreso = False
+    tiempo_restante = 0
 
     ranking = [
         (n, p)
