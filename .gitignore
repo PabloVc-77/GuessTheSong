@@ -32,3 +32,4 @@ ffmpeg/
 # Distribution / packaging
 dist/
 build/
+deno/
